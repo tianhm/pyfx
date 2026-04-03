@@ -31,6 +31,11 @@
     .pulse-dot {
         animation: pulse-dot 1.5s ease-in-out infinite;
     }
+    th[data-sort] { cursor: pointer; user-select: none; }
+    th[data-sort]:hover { opacity: 0.8; }
+    th[data-sort]::after { content: ' \2195'; opacity: 0.3; font-size: 0.7em; }
+    th[data-sort].asc::after { content: ' \2191'; opacity: 1; }
+    th[data-sort].desc::after { content: ' \2193'; opacity: 1; }
 </style>
 {% endblock %}
 
@@ -58,16 +63,16 @@
             <thead>
                 <tr class="text-xs uppercase tracking-wider">
                     <th>Status</th>
-                    <th>Date</th>
-                    <th>Strategy</th>
-                    <th>Instrument</th>
+                    <th data-sort="str">Date</th>
+                    <th data-sort="str">Strategy</th>
+                    <th data-sort="str">Instrument</th>
                     <th>Period</th>
-                    <th class="text-right">P&L</th>
-                    <th class="text-right">Return</th>
-                    <th class="text-right">Trades</th>
-                    <th class="text-right">Win Rate</th>
-                    <th class="text-right">Max DD</th>
-                    <th class="text-right">Duration</th>
+                    <th data-sort="num" class="text-right">P&L</th>
+                    <th data-sort="num" class="text-right">Return</th>
+                    <th data-sort="num" class="text-right">Trades</th>
+                    <th data-sort="num" class="text-right">Win Rate</th>
+                    <th data-sort="num" class="text-right">Max DD</th>
+                    <th data-sort="num" class="text-right">Duration</th>
                 </tr>
             </thead>
             <tbody>
@@ -96,16 +101,16 @@
                     <td class="whitespace-nowrap text-sm opacity-70">
                         {{ run.start|date:"Y-m-d" }} &rarr; {{ run.end|date:"Y-m-d" }}
                     </td>
-                    <td class="text-right font-mono text-sm {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
+                    <td data-val="{{ run.total_pnl }}" class="text-right font-mono text-sm {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
                         ${{ run.total_pnl|floatformat:2 }}
                     </td>
-                    <td class="text-right font-mono text-sm {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
+                    <td data-val="{{ run.total_return_pct }}" class="text-right font-mono text-sm {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
                         {{ run.total_return_pct|floatformat:2 }}%
                     </td>
-                    <td class="text-right text-sm">{{ run.num_trades }}</td>
-                    <td class="text-right text-sm">{{ run.win_rate|floatformat:1 }}%</td>
-                    <td class="text-right text-sm text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
-                    <td class="text-right text-sm opacity-70">{{ run.duration_seconds|floatformat:1 }}s</td>
+                    <td data-val="{{ run.num_trades }}" class="text-right text-sm">{{ run.num_trades }}</td>
+                    <td data-val="{{ run.win_rate }}" class="text-right text-sm">{{ run.win_rate|floatformat:1 }}%</td>
+                    <td data-val="{{ run.max_drawdown_pct }}" class="text-right text-sm text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
+                    <td data-val="{{ run.duration_seconds }}" class="text-right text-sm opacity-70">{{ run.duration_seconds|floatformat:1 }}s</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -450,6 +455,42 @@ document.addEventListener('DOMContentLoaded', function() {
     // Start polling
     pollRunning();
     setInterval(pollRunning, 2000);
+
+    // ── Sortable table columns ──
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+        th.addEventListener('click', () => {
+            const table = th.closest('table');
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const idx = Array.from(th.parentNode.children).indexOf(th);
+            const type = th.dataset.sort; // "num" or "str"
+            const asc = !th.classList.contains('asc');
+
+            // Reset all headers
+            th.parentNode.querySelectorAll('th[data-sort]').forEach(h => {
+                h.classList.remove('asc', 'desc');
+            });
+            th.classList.add(asc ? 'asc' : 'desc');
+
+            rows.sort((a, b) => {
+                const cellA = a.children[idx];
+                const cellB = b.children[idx];
+                let va, vb;
+                if (type === 'num') {
+                    va = parseFloat(cellA.dataset.val || cellA.textContent.replace(/[^0-9.\-]/g, '')) || 0;
+                    vb = parseFloat(cellB.dataset.val || cellB.textContent.replace(/[^0-9.\-]/g, '')) || 0;
+                } else {
+                    va = cellA.textContent.trim().toLowerCase();
+                    vb = cellB.textContent.trim().toLowerCase();
+                }
+                if (va < vb) return asc ? -1 : 1;
+                if (va > vb) return asc ? 1 : -1;
+                return 0;
+            });
+
+            rows.forEach(r => tbody.appendChild(r));
+        });
+    });
 });
 </script>
 {% endblock %}

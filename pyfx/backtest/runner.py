@@ -13,7 +13,7 @@ from nautilus_trader.config import BacktestEngineConfig, LoggingConfig
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.enums import AccountType, OmsType
-from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.wranglers import BarDataWrangler
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
@@ -90,9 +90,65 @@ def _resample_bars(bars_df: pd.DataFrame, bar_type_str: str) -> pd.DataFrame:
     return resampled
 
 
+# Instruments that need non-FX precision and lot sizing.
+# default_fx_ccy uses 5-decimal for non-JPY — wrong for commodities.
+# Each override: (price_precision, tick_scheme, lot_size_str, min_qty_str)
+#
+# Gold: 2 decimal, 1 oz per unit, min 1 oz.  trade_size=100 = 100 oz.
+# Oil:  2 decimal, 1 bbl per unit, min 1 bbl. trade_size=1000 = 1000 bbl.
+_INSTRUMENT_OVERRIDES: dict[str, tuple[int, str, str, str]] = {
+    "XAU/USD": (2, "FOREX_3DECIMAL", "1", "1"),
+    "OIL/USD": (2, "FOREX_3DECIMAL", "1", "1"),
+    "BCO/USD": (2, "FOREX_3DECIMAL", "1", "1"),
+    "WTI/USD": (2, "FOREX_3DECIMAL", "1", "1"),
+}
+
+
 def _get_instrument(instrument_str: str, venue: str):
-    """Get a NautilusTrader instrument for the given string (e.g. 'EUR/USD')."""
-    return TestInstrumentProvider.default_fx_ccy(instrument_str, Venue(venue))
+    """Get a NautilusTrader instrument for the given string (e.g. 'EUR/USD').
+
+    For standard FX pairs, uses TestInstrumentProvider.default_fx_ccy().
+    For commodities (XAU/USD, OIL/USD), creates a CurrencyPair with correct
+    price precision (2 decimals instead of 5) so P&L is realistic.
+    """
+    from nautilus_trader.model.currencies import Currency as NTCurrency
+    from nautilus_trader.model.instruments import CurrencyPair
+    from nautilus_trader.model.objects import Money, Price, Quantity
+
+    override = _INSTRUMENT_OVERRIDES.get(instrument_str)
+    if override is None:
+        return TestInstrumentProvider.default_fx_ccy(instrument_str, Venue(venue))
+
+    price_precision, tick_scheme, lot_size_str, min_qty_str = override
+    v = Venue(venue)
+    instrument_id = InstrumentId(Symbol(instrument_str), v)
+    base = instrument_str[:3]
+    quote = instrument_str[-3:]
+
+    return CurrencyPair(
+        instrument_id=instrument_id,
+        raw_symbol=Symbol(instrument_str),
+        base_currency=NTCurrency.from_str(base),
+        quote_currency=NTCurrency.from_str(quote),
+        price_precision=price_precision,
+        size_precision=0,
+        price_increment=Price(1 / 10**price_precision, price_precision),
+        size_increment=Quantity.from_int(1),
+        lot_size=Quantity.from_str(lot_size_str),
+        max_quantity=Quantity.from_str("1e7"),
+        min_quantity=Quantity.from_str(min_qty_str),
+        max_price=None,
+        min_price=None,
+        max_notional=Money(50_000_000.00, USD),
+        min_notional=Money(1_000.00, USD),
+        margin_init=Decimal("0.03"),
+        margin_maint=Decimal("0.03"),
+        maker_fee=Decimal("0.00002"),
+        taker_fee=Decimal("0.00002"),
+        tick_scheme_name=tick_scheme,
+        ts_event=0,
+        ts_init=0,
+    )
 
 
 def run_backtest(
@@ -163,12 +219,17 @@ def run_backtest(
 
     strategy_cls = get_strategy(config.strategy, settings.strategies_dir)
     config_cls = _find_config_class(strategy_cls)
+
+    # strategy_params may contain trade_size from -p flag; let it override
+    params = dict(config.strategy_params)
+    trade_size = Decimal(str(params.pop("trade_size", config.trade_size)))
+
     strategy_config = config_cls(
         instrument_id=instrument.id,
         bar_type=bar_type,
         extra_bar_types=extra_bar_type_objects,
-        trade_size=config.trade_size,
-        **config.strategy_params,
+        trade_size=trade_size,
+        **params,
     )
 
     strategy = strategy_cls(strategy_config)
