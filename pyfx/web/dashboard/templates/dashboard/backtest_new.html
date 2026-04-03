@@ -2,10 +2,15 @@
 {% block title %}pyfx - New Backtest{% endblock %}
 
 {% block content %}
-<div class="flex items-center gap-3 mb-6">
-    <a href="{% url 'dashboard:backtest_list' %}" class="btn btn-ghost btn-sm">&larr; Back</a>
-    <h1 class="text-2xl font-bold">New Backtest</h1>
+<!-- Breadcrumbs -->
+<div class="breadcrumbs text-sm mb-4">
+    <ul>
+        <li><a href="{% url 'dashboard:backtest_list' %}">Backtests</a></li>
+        <li>New Backtest</li>
+    </ul>
 </div>
+
+<h1 class="text-2xl font-bold mb-6">New Backtest</h1>
 
 <form id="backtest-form" method="post" action="{% url 'dashboard:backtest_start' %}">
     {% csrf_token %}
@@ -14,48 +19,51 @@
         <div class="space-y-4">
             <div class="card bg-base-100 shadow">
                 <div class="card-body p-5 space-y-4">
-                    <h2 class="text-sm font-semibold uppercase tracking-wider opacity-60">Configuration</h2>
+                    <h2 class="text-sm font-semibold uppercase tracking-wider opacity-50">Configuration</h2>
 
                     <div class="form-control">
-                        <label class="label py-1"><span class="label-text font-medium">Strategy</span></label>
-                        <select id="strategy-select" name="strategy" class="select select-bordered w-full" required>
+                        <label class="label py-1"><span class="label-text text-xs font-medium">Strategy</span></label>
+                        <select id="strategy-select" name="strategy" class="select select-bordered select-sm w-full" required>
                             <option value="" disabled selected>Loading strategies&hellip;</option>
                         </select>
                     </div>
 
                     <div class="form-control">
-                        <label class="label py-1"><span class="label-text font-medium">Instrument</span></label>
-                        <input type="text" name="instrument" value="EUR/USD" class="input input-bordered w-full" required />
+                        <label class="label py-1"><span class="label-text text-xs font-medium">Instrument</span></label>
+                        <input type="text" name="instrument" value="EUR/USD" class="input input-bordered input-sm w-full" required />
                     </div>
 
                     <div class="grid grid-cols-2 gap-3">
                         <div class="form-control">
-                            <label class="label py-1"><span class="label-text font-medium">Start Date</span></label>
-                            <input type="date" name="start" class="input input-bordered w-full" required />
+                            <label class="label py-1"><span class="label-text text-xs font-medium">Start Date</span></label>
+                            <input type="date" id="start-date" name="start" class="input input-bordered input-sm w-full" required />
                         </div>
                         <div class="form-control">
-                            <label class="label py-1"><span class="label-text font-medium">End Date</span></label>
-                            <input type="date" name="end" class="input input-bordered w-full" required />
+                            <label class="label py-1"><span class="label-text text-xs font-medium">End Date</span></label>
+                            <input type="date" id="end-date" name="end" class="input input-bordered input-sm w-full" required />
                         </div>
                     </div>
 
                     <div class="form-control">
-                        <label class="label py-1"><span class="label-text font-medium">Data File</span></label>
-                        <select id="dataset-select" class="select select-bordered w-full" onchange="onDatasetSelect(this)">
+                        <label class="label py-1"><span class="label-text text-xs font-medium">Data File</span></label>
+                        <select id="dataset-select" class="select select-bordered select-sm w-full" onchange="onDatasetSelect(this)">
                             <option value="" disabled selected>Loading datasets&hellip;</option>
                         </select>
                         <input type="hidden" name="data_file" id="data-file-input" required />
-                        <input type="text" id="custom-path-input" placeholder="Enter custom file path" class="input input-bordered w-full font-mono text-sm mt-2 hidden" />
+                        <input type="text" id="custom-path-input" placeholder="Enter custom file path" class="input input-bordered input-sm w-full font-mono text-xs mt-2 hidden" />
                         <label class="label py-0"><span class="label-text-alt opacity-40">Select a dataset or enter a custom path</span></label>
                     </div>
                 </div>
             </div>
 
-            <!-- Advanced Settings -->
-            <div class="card bg-base-100 shadow">
-                <div class="card-body p-5">
-                    <h2 class="text-sm font-semibold uppercase tracking-wider opacity-60">Advanced</h2>
-                    <div class="grid grid-cols-2 gap-3 mt-2">
+            <!-- Advanced Settings (Collapsible) -->
+            <div class="collapse collapse-arrow bg-base-100 shadow rounded-box">
+                <input type="checkbox" />
+                <div class="collapse-title text-sm font-semibold uppercase tracking-wider opacity-50 py-3 min-h-0">
+                    Advanced
+                </div>
+                <div class="collapse-content px-5 pb-4">
+                    <div class="grid grid-cols-2 gap-3">
                         <div class="form-control">
                             <label class="label py-1"><span class="label-text text-xs">Balance</span></label>
                             <input type="number" name="balance" value="100000" class="input input-bordered input-sm w-full" />
@@ -100,6 +108,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const paramsArea = document.getElementById('strategy-params-area');
     const paramsCards = document.getElementById('strategy-params-cards');
     let strategiesData = {};
+
+    // ── Set default dates (1 year ago → today) ──
+    const today = new Date();
+    const yearAgo = new Date(today);
+    yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+    document.getElementById('end-date').value = today.toISOString().slice(0, 10);
+    document.getElementById('start-date').value = yearAgo.toISOString().slice(0, 10);
 
     const CATEGORY_LABELS = {
         indicators: 'Indicators & Entry',
@@ -167,6 +182,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 opt.textContent = s.name;
                 select.appendChild(opt);
             });
+        })
+        .catch(() => {
+            select.innerHTML = '<option value="" disabled selected>Failed to load strategies</option>';
         });
 
     select.addEventListener('change', function() {
@@ -197,7 +215,7 @@ document.addEventListener('DOMContentLoaded', function() {
             body.className = 'card-body p-5';
 
             const heading = document.createElement('h2');
-            heading.className = 'text-sm font-semibold uppercase tracking-wider opacity-60 mb-3';
+            heading.className = 'text-sm font-semibold uppercase tracking-wider opacity-50 mb-3';
             heading.textContent = CATEGORY_LABELS[cat] || cat;
             body.appendChild(heading);
 
@@ -212,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Toggle
                     wrapper.className = 'form-control flex-row items-center justify-between py-2';
                     const label = document.createElement('span');
-                    label.className = 'label-text font-mono text-sm';
+                    label.className = 'label-text text-xs';
                     label.textContent = p.name;
                     wrapper.appendChild(label);
 
@@ -237,7 +255,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Select dropdown
                     const label = document.createElement('label');
                     label.className = 'label py-1';
-                    label.innerHTML = '<span class="label-text font-mono text-sm">' + p.name + '</span>';
+                    label.innerHTML = '<span class="label-text text-xs">' + p.name + '</span>';
                     wrapper.appendChild(label);
 
                     const sel = document.createElement('select');
@@ -255,7 +273,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Number or text input
                     const label = document.createElement('label');
                     label.className = 'label py-1';
-                    label.innerHTML = '<span class="label-text font-mono text-sm">' + p.name + '</span>';
+                    label.innerHTML = '<span class="label-text text-xs">' + p.name + '</span>';
                     wrapper.appendChild(label);
 
                     const input = document.createElement('input');

@@ -33,6 +33,7 @@ def overview(request: HttpRequest) -> HttpResponse:
             best_return=Max("total_return_pct"),
             worst_drawdown=Min("max_drawdown_pct"),
             avg_win_rate=Avg("win_rate"),
+            best_profit_factor=Max("profit_factor"),
         )
         strategies_tested = (
             runs.values("strategy").annotate(c=Count("id")).count()
@@ -40,6 +41,9 @@ def overview(request: HttpRequest) -> HttpResponse:
         best_run = runs.order_by("-total_return_pct").first()
         worst_dd_run = runs.order_by("max_drawdown_pct").first()
 
+        best_pf_run = runs.filter(profit_factor__isnull=False).order_by(
+            "-profit_factor"
+        ).first()
         context.update({
             "strategies_tested": strategies_tested,
             "best_return": agg["best_return"] or 0,
@@ -47,6 +51,8 @@ def overview(request: HttpRequest) -> HttpResponse:
             "worst_drawdown": agg["worst_drawdown"] or 0,
             "worst_dd_strategy": worst_dd_run.strategy if worst_dd_run else "",
             "avg_win_rate": (agg["avg_win_rate"] or 0) * 100,
+            "best_profit_factor": agg["best_profit_factor"],
+            "best_pf_strategy": best_pf_run.strategy if best_pf_run else "",
             "recent_runs": BacktestRun.objects.exclude(
                 status=BacktestRun.STATUS_RUNNING
             )[:10],
@@ -78,11 +84,30 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "value": round(running, 2),
         })
 
+    # Compute quant metrics
+    expectancy = 0.0
+    win_loss_ratio: float | None = None
+    num_wins = 0
+    num_losses = 0
+    if run.status == BacktestRun.STATUS_COMPLETED and run.num_trades > 0:
+        wr = run.win_rate or 0.0
+        avg_w = run.avg_win or 0.0
+        avg_l = run.avg_loss or 0.0
+        expectancy = round((wr * avg_w) - ((1 - wr) * abs(avg_l)), 2)
+        if avg_l:
+            win_loss_ratio = round(avg_w / abs(avg_l), 2)
+        num_wins = round(run.num_trades * wr)
+        num_losses = run.num_trades - num_wins
+
     return render(request, "dashboard/backtest_detail.html", {
         "active_nav": "backtests",
         "run": run,
         "trades": trades,
         "cumulative_pnl_json": json.dumps(cumulative_pnl),
+        "expectancy": expectancy,
+        "win_loss_ratio": win_loss_ratio,
+        "num_wins": num_wins,
+        "num_losses": num_losses,
     })
 
 

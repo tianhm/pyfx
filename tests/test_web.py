@@ -94,8 +94,8 @@ class OverviewViewTests(TestCase):
         assert b"Overview" in resp.content
         # Summary cards present
         content = resp.content.decode()
-        assert "Total Backtests" in content
         assert "Best Return" in content
+        assert "Best Profit Factor" in content
         assert "Worst Drawdown" in content
 
     def test_overview_context_values(self):
@@ -156,7 +156,8 @@ class BacktestListViewTests(TestCase):
         run = _create_run()
         resp = self.client.get("/backtests/")
         assert f"/run/{run.pk}/rerun/".encode() in resp.content
-        assert f"/run/{run.pk}/delete/".encode() in resp.content
+        assert b"confirmDeleteBacktest(" in resp.content
+        assert b"delete-backtest-modal" in resp.content
 
 
 class BacktestDetailViewTests(TestCase):

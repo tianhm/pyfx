@@ -12,6 +12,15 @@
         .sidebar-link:hover { background: rgba(255,255,255,0.06); }
         .sidebar-link.active { background: rgba(99, 102, 241, 0.15); color: #818cf8; border-right: 3px solid #818cf8; }
         .sidebar-link.active svg { color: #818cf8; }
+        /* Tabular numbers for aligned columns */
+        .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+        /* Clickable row left-border indicator */
+        tr.clickable-row { transition: background 0.1s ease; }
+        tr.clickable-row:hover { cursor: pointer; }
+        tr.clickable-row:hover td:first-child { box-shadow: inset 3px 0 0 #818cf8; }
+        /* Stat card hover */
+        .stat-card { border: 1px solid transparent; transition: border-color 0.15s ease; }
+        .stat-card:hover { border-color: rgba(99, 102, 241, 0.2); }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
@@ -77,6 +86,15 @@
                             </a>
                         </li>
                         <li>
+                            <a href="{% url 'dashboard:backtest_list' %}"
+                               class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium {% if active_nav == 'backtests' %}active{% else %}text-base-content/70{% endif %}">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-5 h-5 opacity-70" stroke-width="1.5">
+                                    <path d="M9 19v-6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2zm0 0V9a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10m-6 0a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2m0 0V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                Backtests
+                            </a>
+                        </li>
+                        <li>
                             <a href="{% url 'dashboard:dataset_list' %}"
                                class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium {% if active_nav == 'data' %}active{% else %}text-base-content/70{% endif %}">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-5 h-5 opacity-70" stroke-width="1.5">
@@ -87,16 +105,15 @@
                                 Data
                             </a>
                         </li>
-                        <li>
-                            <a href="{% url 'dashboard:backtest_list' %}"
-                               class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium {% if active_nav == 'backtests' %}active{% else %}text-base-content/70{% endif %}">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-5 h-5 opacity-70" stroke-width="1.5">
-                                    <path d="M9 19v-6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2zm0 0V9a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10m-6 0a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2m0 0V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                                Backtests
-                            </a>
-                        </li>
                     </ul>
+                    <div class="mt-4 px-1">
+                        <a href="{% url 'dashboard:backtest_new' %}" class="btn btn-primary btn-sm w-full gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
+                                <path d="M12 5v14m-7-7h14" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            New Backtest
+                        </a>
+                    </div>
                 </nav>
 
                 <!-- Footer -->
@@ -110,11 +127,39 @@
     </div>
 
     <script>
+    // ── Shared utilities ──
+    function formatDuration(seconds) {
+        if (seconds == null || isNaN(seconds)) return '-';
+        if (seconds < 60) return seconds.toFixed(1) + 's';
+        if (seconds < 3600) {
+            var m = Math.floor(seconds / 60);
+            var s = Math.round(seconds % 60);
+            return m + 'm ' + String(s).padStart(2, '0') + 's';
+        }
+        var h = Math.floor(seconds / 3600);
+        var m = Math.floor((seconds % 3600) / 60);
+        return h + 'h ' + String(m).padStart(2, '0') + 'm';
+    }
+    function formatNumber(n) {
+        if (n == null || isNaN(n)) return '-';
+        return Number(n).toLocaleString();
+    }
+    // Format <time> elements
     document.querySelectorAll('time[datetime]').forEach(function(el) {
         var d = new Date(el.getAttribute('datetime'));
         if (!isNaN(d)) {
             el.textContent = d.toLocaleString(undefined, JSON.parse(el.dataset.fmt || '{}'));
         }
+    });
+    // Format duration cells
+    document.querySelectorAll('.duration-cell').forEach(function(el) {
+        var val = parseFloat(el.dataset.val);
+        if (!isNaN(val)) el.textContent = formatDuration(val);
+    });
+    // Format large numbers
+    document.querySelectorAll('.num-fmt').forEach(function(el) {
+        var val = parseFloat(el.textContent.replace(/[^0-9.\-]/g, ''));
+        if (!isNaN(val) && val >= 1000) el.textContent = formatNumber(val);
     });
     </script>
     {% block extra_js %}{% endblock %}

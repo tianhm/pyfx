@@ -21,25 +21,25 @@
 {% if total_runs > 0 %}
 <!-- Summary Cards -->
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-    <div class="stat bg-base-100 rounded-box shadow p-5">
-        <div class="stat-title text-xs uppercase tracking-wider opacity-50">Total Backtests</div>
-        <div class="stat-value text-2xl mt-1">{{ total_runs }}</div>
-        <div class="stat-desc mt-1">{{ strategies_tested }} strateg{{ strategies_tested|pluralize:"y,ies" }}</div>
-    </div>
-    <div class="stat bg-base-100 rounded-box shadow p-5">
+    <div class="stat stat-card bg-base-100 rounded-box shadow p-5">
         <div class="stat-title text-xs uppercase tracking-wider opacity-50">Best Return</div>
-        <div class="stat-value text-2xl mt-1 text-success">{{ best_return|floatformat:2 }}%</div>
+        <div class="stat-value text-2xl num mt-1 text-success">{{ best_return|floatformat:2 }}%</div>
         <div class="stat-desc mt-1">{{ best_strategy }}</div>
     </div>
-    <div class="stat bg-base-100 rounded-box shadow p-5">
+    <div class="stat stat-card bg-base-100 rounded-box shadow p-5">
+        <div class="stat-title text-xs uppercase tracking-wider opacity-50">Best Profit Factor</div>
+        <div class="stat-value text-2xl num mt-1">{% if best_profit_factor %}{{ best_profit_factor|floatformat:2 }}{% else %}-{% endif %}</div>
+        <div class="stat-desc mt-1">{{ best_pf_strategy }}</div>
+    </div>
+    <div class="stat stat-card bg-base-100 rounded-box shadow p-5">
         <div class="stat-title text-xs uppercase tracking-wider opacity-50">Worst Drawdown</div>
-        <div class="stat-value text-2xl mt-1 text-error">{{ worst_drawdown|floatformat:2 }}%</div>
+        <div class="stat-value text-2xl num mt-1 text-error">{{ worst_drawdown|floatformat:2 }}%</div>
         <div class="stat-desc mt-1">{{ worst_dd_strategy }}</div>
     </div>
-    <div class="stat bg-base-100 rounded-box shadow p-5">
+    <div class="stat stat-card bg-base-100 rounded-box shadow p-5">
         <div class="stat-title text-xs uppercase tracking-wider opacity-50">Avg Win Rate</div>
-        <div class="stat-value text-2xl mt-1">{{ avg_win_rate|floatformat:1 }}%</div>
-        <div class="stat-desc mt-1">across all runs</div>
+        <div class="stat-value text-2xl num mt-1 {% if avg_win_rate >= 50 %}text-success{% endif %}">{{ avg_win_rate|floatformat:1 }}%</div>
+        <div class="stat-desc mt-1">{{ total_runs }} run{{ total_runs|pluralize }} &middot; {{ strategies_tested }} strateg{{ strategies_tested|pluralize:"y,ies" }}</div>
     </div>
 </div>
 
@@ -61,22 +61,26 @@
                         <th class="text-right">Return</th>
                         <th class="text-right">Trades</th>
                         <th class="text-right">Win Rate</th>
+                        <th class="text-right">Profit Factor</th>
+                        <th class="text-right">Max DD</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for run in recent_runs %}
-                    <tr class="hover cursor-pointer" onclick="window.location='{% url 'dashboard:backtest_detail' run.pk %}'">
+                    <tr class="clickable-row hover" onclick="window.location='{% url 'dashboard:backtest_detail' run.pk %}'">
                         <td class="whitespace-nowrap text-sm"><time datetime="{{ run.created_at|date:'c' }}" data-fmt='{"month":"short","day":"numeric","hour":"2-digit","minute":"2-digit","hour12":false}'>{{ run.created_at|date:"M d, H:i" }}</time></td>
                         <td><span class="badge badge-primary badge-sm">{{ run.strategy }}</span></td>
                         <td class="text-sm">{{ run.instrument }}</td>
-                        <td class="text-right font-mono text-sm {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
+                        <td class="text-right num text-sm {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
                             ${{ run.total_pnl|floatformat:2 }}
                         </td>
-                        <td class="text-right font-mono text-sm {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
+                        <td class="text-right num text-sm {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
                             {{ run.total_return_pct|floatformat:2 }}%
                         </td>
-                        <td class="text-right text-sm">{{ run.num_trades }}</td>
-                        <td class="text-right text-sm">{{ run.win_rate_pct|floatformat:1 }}%</td>
+                        <td class="text-right num text-sm">{{ run.num_trades }}</td>
+                        <td class="text-right num text-sm {% if run.win_rate >= 0.5 %}text-success{% endif %}">{{ run.win_rate_pct|floatformat:1 }}%</td>
+                        <td class="text-right num text-sm">{% if run.profit_factor %}{{ run.profit_factor|floatformat:2 }}{% else %}-{% endif %}</td>
+                        <td class="text-right num text-sm text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -98,7 +102,7 @@
             </div>
             <h2 class="text-2xl font-bold mb-3">Welcome to pyfx</h2>
             <p class="mb-6 opacity-60">Run your first backtest to see performance metrics, equity curves, and trade analysis here.</p>
-            <a href="{% url 'dashboard:backtest_list' %}" class="btn btn-primary">
+            <a href="{% url 'dashboard:backtest_new' %}" class="btn btn-primary">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
                     <path d="M12 5v14m-7-7h14" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
