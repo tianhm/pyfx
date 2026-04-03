@@ -399,10 +399,15 @@ class CobanRebornStrategy(PyfxStrategy):
             self._on_m1_bar(bar)
 
     def on_order_filled(self, event: OrderFilled) -> None:
-        self._entry_price = float(event.last_px)
-        self._best_price = self._entry_price
-        if self._h1_atr.initialized:
-            self._entry_atr = self._h1_atr.value
+        # Only set entry state when opening a new position, not on close fills
+        if self._trade_direction == 0:
+            return
+        if not self.flat():
+            # We just opened a position — set entry tracking state
+            self._entry_price = float(event.last_px)
+            self._best_price = self._entry_price
+            if self._h1_atr.initialized:
+                self._entry_atr = self._h1_atr.value
 
     # -- H1 handler ----------------------------------------------------------
 
@@ -609,7 +614,7 @@ class CobanRebornStrategy(PyfxStrategy):
         """Fixed TP/SL exit using bar high/low."""
         spread = self._spread_cost
         tp_distance = cfg.take_profit_pips * self._pip_size - spread
-        sl_distance = cfg.stop_loss_pips * self._pip_size - spread
+        sl_distance = cfg.stop_loss_pips * self._pip_size + spread
 
         if self._trade_direction == 1:
             if (high - self._entry_price) >= tp_distance:
@@ -636,7 +641,7 @@ class CobanRebornStrategy(PyfxStrategy):
     ) -> bool:
         """Trailing stop exit using bar high/low."""
         trail_distance = cfg.trailing_stop_pips * self._pip_size
-        sl_distance = cfg.stop_loss_pips * self._pip_size - self._spread_cost
+        sl_distance = cfg.stop_loss_pips * self._pip_size + self._spread_cost
 
         if self._trade_direction == 1:
             if high > self._best_price:
@@ -669,8 +674,9 @@ class CobanRebornStrategy(PyfxStrategy):
         if self._entry_atr <= 0.0:
             return self._exit_fixed(high, low, cfg)  # pragma: no cover
 
-        tp_distance = self._entry_atr * cfg.atr_tp_multiplier
-        sl_distance = self._entry_atr * cfg.atr_sl_multiplier
+        spread = self._spread_cost
+        tp_distance = self._entry_atr * cfg.atr_tp_multiplier - spread
+        sl_distance = self._entry_atr * cfg.atr_sl_multiplier + spread
 
         if self._trade_direction == 1:
             if (high - self._entry_price) >= tp_distance:

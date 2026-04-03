@@ -76,7 +76,7 @@
                             {{ run.total_return_pct|floatformat:2 }}%
                         </td>
                         <td class="text-right text-sm">{{ run.num_trades }}</td>
-                        <td class="text-right text-sm">{{ run.win_rate|floatformat:1 }}%</td>
+                        <td class="text-right text-sm">{{ run.win_rate_pct|floatformat:1 }}%</td>
                     </tr>
                     {% endfor %}
                 </tbody>
