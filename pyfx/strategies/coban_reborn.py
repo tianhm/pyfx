@@ -36,8 +36,8 @@ class CobanRebornConfig(PyfxStrategyConfig, frozen=True):
     """Configuration for the CobanReborn strategy."""
 
     # Entry/exit mode selection
-    entry_mode: str = "full"      # "full" (original) | "trend_follow"
-    exit_mode: str = "fixed"      # "fixed" (original) | "trailing" | "atr"
+    entry_mode: str = "trend_follow"  # "full" (original) | "trend_follow"
+    exit_mode: str = "atr"            # "fixed" (original) | "trailing" | "atr"
 
     # Indicator periods
     sma_fast_period: int = 4
@@ -64,9 +64,9 @@ class CobanRebornConfig(PyfxStrategyConfig, frozen=True):
     atr_tp_multiplier: float = 2.0
     atr_sl_multiplier: float = 1.5
 
-    # Session filter
-    session_start_hour: int = 8
-    session_end_hour: int = 17
+    # Session filter (0/24 = 24h trading; use 8/17 for EUR/GBP)
+    session_start_hour: int = 0
+    session_end_hour: int = 24
 
     # Signal window
     max_signal_window_seconds: int = 3600
@@ -331,6 +331,7 @@ class CobanRebornStrategy(PyfxStrategy):
         # Trade state
         self._entry_price: float = 0.0
         self._trade_direction: int = 0  # +1 long, -1 short
+        self._pending_entry: bool = False
         self._pip_size: float = 0.0
         self._spread_cost: float = 0.0  # half-spread in price units
         self._macd_reversal_count: int = 0  # consecutive bars of hist decline
@@ -399,6 +400,9 @@ class CobanRebornStrategy(PyfxStrategy):
             self._on_m1_bar(bar)
 
     def on_order_filled(self, event: OrderFilled) -> None:
+        if not self._pending_entry:
+            return  # Only set entry state on opening fills
+        self._pending_entry = False
         self._entry_price = float(event.last_px)
         self._best_price = self._entry_price
         if self._h1_atr.initialized:
@@ -525,6 +529,7 @@ class CobanRebornStrategy(PyfxStrategy):
             return
 
         self._trade_direction = direction
+        self._pending_entry = True
         if direction == 1:
             self.market_buy()
         else:
@@ -669,8 +674,9 @@ class CobanRebornStrategy(PyfxStrategy):
         if self._entry_atr <= 0.0:
             return self._exit_fixed(high, low, cfg)  # pragma: no cover
 
-        tp_distance = self._entry_atr * cfg.atr_tp_multiplier
-        sl_distance = self._entry_atr * cfg.atr_sl_multiplier
+        spread = self._spread_cost
+        tp_distance = self._entry_atr * cfg.atr_tp_multiplier - spread
+        sl_distance = self._entry_atr * cfg.atr_sl_multiplier - spread
 
         if self._trade_direction == 1:
             if (high - self._entry_price) >= tp_distance:

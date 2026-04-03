@@ -70,7 +70,7 @@
     </div>
     <div class="stat bg-base-100 rounded-box shadow p-4">
         <div class="stat-title text-xs">Win Rate</div>
-        <div class="stat-value text-lg">{{ run.win_rate|floatformat:1 }}%</div>
+        <div class="stat-value text-lg">{% widthratio run.win_rate 1 100 %}%</div>
     </div>
     <div class="stat bg-base-100 rounded-box shadow p-4">
         <div class="stat-title text-xs">Max Drawdown</div>
