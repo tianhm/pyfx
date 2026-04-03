@@ -1,11 +1,19 @@
 """CobanReborn — multi-timeframe confluence strategy.
 
-Requires three independent signals to align across timeframes:
-  H1: SMA 4/9 crossover + MACD histogram zero-cross + RSI trendline break
-  H2: RSI trendline break confirmation
-  M1: Entry trigger (optionally with full M1 confluence)
+Supports two entry modes:
+  "full" (default): Requires three independent signals to align across timeframes:
+    H1: SMA 4/9 crossover + MACD histogram zero-cross + RSI trendline break
+    H2: RSI trendline break confirmation
+    M1: Entry trigger (optionally with full M1 confluence)
+  "trend_follow": Simplified trend-following approach:
+    SMA 4/9 crossover as trigger, MACD histogram sign + RSI level as filters
 
-Exit via configurable take-profit in pips (MACD reversal exit planned).
+Supports three exit modes:
+  "fixed" (default): Fixed TP/SL in pips (spread-adjusted)
+  "trailing": Trailing stop from best price with hard SL
+  "atr": ATR-based dynamic TP/SL (adapts to volatility)
+
+All modes include MACD reversal exit and session filtering.
 """
 
 from __future__ import annotations
@@ -13,6 +21,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from nautilus_trader.indicators import (
+    AverageTrueRange,
     ExponentialMovingAverage,
     RelativeStrengthIndex,
     SimpleMovingAverage,
@@ -26,26 +35,53 @@ from pyfx.strategies.base import PyfxStrategy, PyfxStrategyConfig
 class CobanRebornConfig(PyfxStrategyConfig, frozen=True):
     """Configuration for the CobanReborn strategy."""
 
+    # Entry/exit mode selection
+    entry_mode: str = "full"      # "full" (original) | "trend_follow"
+    exit_mode: str = "fixed"      # "fixed" (original) | "trailing" | "atr"
+
+    # Indicator periods
     sma_fast_period: int = 4
     sma_slow_period: int = 9
     macd_fast_period: int = 12
     macd_slow_period: int = 26
     macd_signal_period: int = 9
     rsi_period: int = 14
+
+    # Fixed exit params
     take_profit_pips: int = 10
     stop_loss_pips: int = 30
     spread_pips: float = 1.5
+
+    # MACD reversal exit
     macd_reversal_exit: bool = True
     macd_reversal_bars: int = 2
+
+    # Trailing stop params
+    trailing_stop_pips: int = 15
+
+    # ATR exit params
+    atr_period: int = 14
+    atr_tp_multiplier: float = 2.0
+    atr_sl_multiplier: float = 1.5
+
+    # Session filter
     session_start_hour: int = 8
     session_end_hour: int = 17
+
+    # Signal window
     max_signal_window_seconds: int = 3600
+
+    # Full-mode specific: double-confirm and M1
     double_confirm_enabled: bool = True
     double_confirm_window_seconds: int = 600
     double_confirm_min_gap_seconds: int = 300
+    m1_confirm_enabled: bool = True
+
+    # RSI params
     rsi_buffer_size: int = 100
     rsi_min_peak_diff: int = 2
-    m1_confirm_enabled: bool = True
+    rsi_level_threshold: float = 0.50  # for trend_follow mode
+
     trade_size: Decimal = Decimal("100000")
 
 
@@ -203,8 +239,19 @@ def _is_fresh(ts_ns: int, now_ns: int, window_seconds: int) -> bool:
 class CobanRebornStrategy(PyfxStrategy):
     """Multi-timeframe confluence strategy (CobanReborn).
 
-    Requires SMA cross + MACD histogram cross + RSI trendline break on H1,
-    RSI trendline break on H2, and optionally full M1 confluence before entry.
+    Entry modes (``entry_mode`` config):
+      ``"full"``:  Requires SMA cross + MACD histogram cross + RSI trendline
+          break on H1, RSI trendline break on H2, and optionally full M1
+          confluence.
+      ``"trend_follow"``:  SMA 4/9 cross as trigger with MACD histogram sign
+          and RSI level (>/<0.50) as directional filters.  No H2 or M1 needed.
+
+    Exit modes (``exit_mode`` config):
+      ``"fixed"``:  Spread-adjusted fixed TP/SL in pips using bar high/low.
+      ``"trailing"``:  Trailing stop from best price with a hard SL backstop.
+      ``"atr"``:  ATR-based TP/SL captured at entry, adapts to volatility.
+
+    All modes share MACD reversal exit (configurable) and session-hour filter.
     """
 
     def __init__(self, config: CobanRebornConfig) -> None:
@@ -222,6 +269,7 @@ class CobanRebornStrategy(PyfxStrategy):
         self._h1_ema_fast = ExponentialMovingAverage(config.macd_fast_period)
         self._h1_ema_slow = ExponentialMovingAverage(config.macd_slow_period)
         self._h1_rsi = RelativeStrengthIndex(config.rsi_period)
+        self._h1_atr = AverageTrueRange(config.atr_period)
 
         # H2
         self._h2_rsi = RelativeStrengthIndex(config.rsi_period)
@@ -287,6 +335,14 @@ class CobanRebornStrategy(PyfxStrategy):
         self._spread_cost: float = 0.0  # half-spread in price units
         self._macd_reversal_count: int = 0  # consecutive bars of hist decline
 
+        # Trailing stop / ATR exit state
+        self._best_price: float = 0.0
+        self._entry_atr: float = 0.0
+
+        # Current H1 indicator values (for trend_follow filters)
+        self._h1_current_hist: float = 0.0
+        self._h1_current_rsi: float = 0.0
+
     # -- Lifecycle -----------------------------------------------------------
 
     def on_start(self) -> None:
@@ -313,7 +369,7 @@ class CobanRebornStrategy(PyfxStrategy):
         for ind in (
             self._h1_sma_fast, self._h1_sma_slow,
             self._h1_ema_fast, self._h1_ema_slow,
-            self._h1_rsi,
+            self._h1_rsi, self._h1_atr,
         ):
             self.register_indicator_for_bars(self._h1_bt, ind)
 
@@ -344,6 +400,9 @@ class CobanRebornStrategy(PyfxStrategy):
 
     def on_order_filled(self, event: OrderFilled) -> None:
         self._entry_price = float(event.last_px)
+        self._best_price = self._entry_price
+        if self._h1_atr.initialized:
+            self._entry_atr = self._h1_atr.value
 
     # -- H1 handler ----------------------------------------------------------
 
@@ -355,6 +414,9 @@ class CobanRebornStrategy(PyfxStrategy):
         if not self._h1_sma_fast.initialized or not self._h1_rsi.initialized:
             self._h1_prev_sma_diff = 0.0
             return
+
+        # Track current RSI for trend_follow filter
+        self._h1_current_rsi = self._h1_rsi.value
 
         # 1. SMA crossover
         sma_diff = self._h1_sma_fast.value - self._h1_sma_slow.value
@@ -378,6 +440,7 @@ class CobanRebornStrategy(PyfxStrategy):
                     self._h1_macd_signal, macd_line, self._macd_alpha,
                 )
             hist = macd_line - self._h1_macd_signal
+            self._h1_current_hist = hist
 
             # MACD reversal exit — close after sustained histogram decline
             if (
@@ -440,35 +503,15 @@ class CobanRebornStrategy(PyfxStrategy):
         cfg: CobanRebornConfig = self.config
         ts = bar.ts_init
 
-        # Update M1 indicators state
+        # Update M1 indicators state (full mode only)
         if cfg.m1_confirm_enabled and self._m1_sma_fast.initialized:
             self._update_m1_signals(ts, cfg)
 
-        # TP / SL check (spread-adjusted: TP shrinks, SL shrinks by spread)
+        # Exit logic (if in a trade)
         if not self.flat():
-            price = float(bar.close)
             if self._entry_price > 0.0 and self._pip_size > 0.0:
-                spread = self._spread_cost
-                tp_distance = cfg.take_profit_pips * self._pip_size - spread
-                sl_distance = cfg.stop_loss_pips * self._pip_size - spread
-                if self._trade_direction == 1:
-                    if (price - self._entry_price) >= tp_distance:
-                        self.close_all()
-                        self._reset_signals()
-                        return
-                    if (self._entry_price - price) >= sl_distance:
-                        self.close_all()
-                        self._reset_signals()
-                        return
-                if self._trade_direction == -1:
-                    if (self._entry_price - price) >= tp_distance:
-                        self.close_all()
-                        self._reset_signals()
-                        return
-                    if (price - self._entry_price) >= sl_distance:
-                        self.close_all()
-                        self._reset_signals()
-                        return
+                if self._check_exit(bar, cfg):
+                    return
             return  # already in a trade, don't enter again
 
         # Session filter — only enter during configurable trading hours (UTC)
@@ -476,28 +519,10 @@ class CobanRebornStrategy(PyfxStrategy):
         if bar_hour < cfg.session_start_hour or bar_hour >= cfg.session_end_hour:
             return
 
-        # Entry check
-        if self._h1_complete_ts == _ZERO_TS:
+        # Entry check — mode-dependent
+        direction = self._get_entry_signal(ts, cfg)
+        if direction == 0:
             return
-        if not _is_fresh(self._h1_complete_ts, ts, cfg.max_signal_window_seconds):
-            return
-        if not _is_fresh(self._h2_rsi_break_ts, ts, cfg.max_signal_window_seconds):
-            return
-        if self._h2_rsi_break_dir != self._h1_complete_dir:
-            return
-
-        direction = self._h1_complete_dir
-
-        # M1 confirmation
-        if cfg.m1_confirm_enabled:
-            if not self._m1_sma_fast.initialized:
-                return
-            if not (
-                self._m1_sma_dir == direction
-                and self._m1_macd_dir == direction
-                and self._m1_rsi_dir == direction
-            ):
-                return
 
         self._trade_direction = direction
         if direction == 1:
@@ -505,6 +530,167 @@ class CobanRebornStrategy(PyfxStrategy):
         else:
             self.market_sell()
         self._reset_signals()
+
+    # -- Entry logic (mode-dependent) ----------------------------------------
+
+    def _get_entry_signal(self, ts: int, cfg: CobanRebornConfig) -> int:
+        """Return +1 (long), -1 (short), or 0 (no entry) based on entry_mode."""
+        if cfg.entry_mode == "trend_follow":
+            return self._entry_trend_follow(ts, cfg)
+        return self._entry_full(ts, cfg)
+
+    def _entry_full(self, ts: int, cfg: CobanRebornConfig) -> int:
+        """Original: H1 3-signal + H2 RSI + optional M1 confirmation."""
+        if self._h1_complete_ts == _ZERO_TS:
+            return 0
+        if not _is_fresh(self._h1_complete_ts, ts, cfg.max_signal_window_seconds):
+            return 0
+        if not _is_fresh(self._h2_rsi_break_ts, ts, cfg.max_signal_window_seconds):
+            return 0
+        if self._h2_rsi_break_dir != self._h1_complete_dir:
+            return 0
+
+        direction = self._h1_complete_dir
+
+        # M1 confirmation
+        if cfg.m1_confirm_enabled:
+            if not self._m1_sma_fast.initialized:
+                return 0
+            if not (
+                self._m1_sma_dir == direction
+                and self._m1_macd_dir == direction
+                and self._m1_rsi_dir == direction
+            ):
+                return 0
+
+        return direction
+
+    def _entry_trend_follow(self, ts: int, cfg: CobanRebornConfig) -> int:
+        """SMA cross as trigger, MACD histogram sign + RSI level as filters."""
+        if self._h1_sma_cross_dir == 0:
+            return 0
+        if not _is_fresh(self._h1_sma_cross_ts, ts, cfg.max_signal_window_seconds):
+            return 0
+
+        direction = self._h1_sma_cross_dir
+        threshold = cfg.rsi_level_threshold
+
+        # MACD histogram must be positive for longs, negative for shorts
+        if direction == 1 and self._h1_current_hist <= 0:
+            return 0
+        if direction == -1 and self._h1_current_hist >= 0:
+            return 0
+
+        # RSI filter
+        if direction == 1 and self._h1_current_rsi <= threshold:
+            return 0
+        if direction == -1 and self._h1_current_rsi >= threshold:
+            return 0
+
+        return direction
+
+    # -- Exit logic (mode-dependent) -----------------------------------------
+
+    def _check_exit(self, bar: Bar, cfg: CobanRebornConfig) -> bool:
+        """Check exit conditions using bar high/low for realistic fills."""
+        high = float(bar.high)
+        low = float(bar.low)
+
+        mode = cfg.exit_mode
+        if mode == "trailing":
+            return self._exit_trailing(high, low, cfg)
+        elif mode == "atr":
+            return self._exit_atr(high, low, cfg)
+        return self._exit_fixed(high, low, cfg)
+
+    def _exit_fixed(
+        self, high: float, low: float, cfg: CobanRebornConfig,
+    ) -> bool:
+        """Fixed TP/SL exit using bar high/low."""
+        spread = self._spread_cost
+        tp_distance = cfg.take_profit_pips * self._pip_size - spread
+        sl_distance = cfg.stop_loss_pips * self._pip_size - spread
+
+        if self._trade_direction == 1:
+            if (high - self._entry_price) >= tp_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+            if (self._entry_price - low) >= sl_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+        elif self._trade_direction == -1:
+            if (self._entry_price - low) >= tp_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+            if (high - self._entry_price) >= sl_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+        return False
+
+    def _exit_trailing(
+        self, high: float, low: float, cfg: CobanRebornConfig,
+    ) -> bool:
+        """Trailing stop exit using bar high/low."""
+        trail_distance = cfg.trailing_stop_pips * self._pip_size
+        sl_distance = cfg.stop_loss_pips * self._pip_size - self._spread_cost
+
+        if self._trade_direction == 1:
+            if high > self._best_price:
+                self._best_price = high
+            if self._best_price - low >= trail_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+            if self._entry_price - low >= sl_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+        elif self._trade_direction == -1:
+            if low < self._best_price:
+                self._best_price = low
+            if high - self._best_price >= trail_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+            if high - self._entry_price >= sl_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+        return False
+
+    def _exit_atr(
+        self, high: float, low: float, cfg: CobanRebornConfig,
+    ) -> bool:
+        """ATR-based TP/SL exit using bar high/low."""
+        if self._entry_atr <= 0.0:
+            return self._exit_fixed(high, low, cfg)  # pragma: no cover
+
+        tp_distance = self._entry_atr * cfg.atr_tp_multiplier
+        sl_distance = self._entry_atr * cfg.atr_sl_multiplier
+
+        if self._trade_direction == 1:
+            if (high - self._entry_price) >= tp_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+            if (self._entry_price - low) >= sl_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+        elif self._trade_direction == -1:
+            if (self._entry_price - low) >= tp_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+            if (high - self._entry_price) >= sl_distance:
+                self.close_all()
+                self._reset_signals()
+                return True
+        return False
 
     # -- M1 indicator state --------------------------------------------------
 
@@ -606,7 +792,7 @@ class CobanRebornStrategy(PyfxStrategy):
             self._h1_complete_ts = ts
 
     def _reset_signals(self) -> None:
-        """Reset all signal state after entry."""
+        """Reset all signal state after entry or exit."""
         self._h1_sma_cross_ts = _ZERO_TS
         self._h1_sma_cross_dir = 0
         self._h1_macd_cross_ts = _ZERO_TS
@@ -625,3 +811,5 @@ class CobanRebornStrategy(PyfxStrategy):
         self._m1_macd_dir = 0
         self._m1_rsi_dir = 0
         self._macd_reversal_count = 0
+        self._best_price = 0.0
+        self._entry_atr = 0.0

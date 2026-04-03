@@ -742,3 +742,381 @@ class TestResetSignals:
         assert s._h1_complete_dir == 0
         assert s._h2_rsi_break_dir == 0
         assert s._m1_sma_dir == 0
+        assert s._best_price == 0.0
+        assert s._entry_atr == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Trend-follow entry mode tests
+# ---------------------------------------------------------------------------
+
+
+class TestTrendFollowEntry:
+    """Test the trend_follow entry mode logic."""
+
+    def _make_strategy(
+        self, **overrides: object,
+    ) -> CobanRebornStrategy:
+        from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.identifiers import InstrumentId
+
+        m1 = BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL")
+        h1 = BarType.from_str("EUR/USD.SIM-60-MINUTE-LAST-EXTERNAL")
+        h2 = BarType.from_str("EUR/USD.SIM-120-MINUTE-LAST-EXTERNAL")
+        defaults: dict = {
+            "instrument_id": InstrumentId.from_str("EUR/USD.SIM"),
+            "bar_type": m1,
+            "extra_bar_types": (h1, h2),
+            "entry_mode": "trend_follow",
+        }
+        defaults.update(overrides)
+        config = CobanRebornConfig(**defaults)
+        return CobanRebornStrategy(config)
+
+    def test_long_signal_when_all_filters_pass(self):
+        s = self._make_strategy()
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = 1
+        s._h1_sma_cross_ts = ts
+        s._h1_current_hist = 0.001
+        s._h1_current_rsi = 0.60
+        result = s._entry_trend_follow(ts, cfg)
+        assert result == 1
+
+    def test_short_signal_when_all_filters_pass(self):
+        s = self._make_strategy()
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = -1
+        s._h1_sma_cross_ts = ts
+        s._h1_current_hist = -0.001
+        s._h1_current_rsi = 0.40
+        result = s._entry_trend_follow(ts, cfg)
+        assert result == -1
+
+    def test_no_signal_when_no_sma_cross(self):
+        s = self._make_strategy()
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = 0
+        s._h1_current_hist = 0.001
+        s._h1_current_rsi = 0.60
+        assert s._entry_trend_follow(ts, cfg) == 0
+
+    def test_no_signal_when_sma_expired(self):
+        s = self._make_strategy(max_signal_window_seconds=3600)
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = 1
+        s._h1_sma_cross_ts = ts - 4000_000_000_000  # 4000s ago > 3600s
+        s._h1_current_hist = 0.001
+        s._h1_current_rsi = 0.60
+        assert s._entry_trend_follow(ts, cfg) == 0
+
+    def test_no_long_when_macd_negative(self):
+        s = self._make_strategy()
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = 1
+        s._h1_sma_cross_ts = ts
+        s._h1_current_hist = -0.001  # MACD says bearish
+        s._h1_current_rsi = 0.60
+        assert s._entry_trend_follow(ts, cfg) == 0
+
+    def test_no_long_when_rsi_below_threshold(self):
+        s = self._make_strategy()
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = 1
+        s._h1_sma_cross_ts = ts
+        s._h1_current_hist = 0.001
+        s._h1_current_rsi = 0.40  # RSI says bearish
+        assert s._entry_trend_follow(ts, cfg) == 0
+
+    def test_no_short_when_macd_positive(self):
+        s = self._make_strategy()
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = -1
+        s._h1_sma_cross_ts = ts
+        s._h1_current_hist = 0.001  # MACD says bullish
+        s._h1_current_rsi = 0.40
+        assert s._entry_trend_follow(ts, cfg) == 0
+
+    def test_no_short_when_rsi_above_threshold(self):
+        s = self._make_strategy()
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = -1
+        s._h1_sma_cross_ts = ts
+        s._h1_current_hist = -0.001
+        s._h1_current_rsi = 0.60  # RSI says bullish
+        assert s._entry_trend_follow(ts, cfg) == 0
+
+
+# ---------------------------------------------------------------------------
+# Exit mode tests
+# ---------------------------------------------------------------------------
+
+
+class TestExitModes:
+    """Test fixed, trailing, and ATR exit logic."""
+
+    def _make_strategy(
+        self, **overrides: object,
+    ) -> CobanRebornStrategy:
+        from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.identifiers import InstrumentId
+
+        m1 = BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL")
+        h1 = BarType.from_str("EUR/USD.SIM-60-MINUTE-LAST-EXTERNAL")
+        h2 = BarType.from_str("EUR/USD.SIM-120-MINUTE-LAST-EXTERNAL")
+        defaults: dict = {
+            "instrument_id": InstrumentId.from_str("EUR/USD.SIM"),
+            "bar_type": m1,
+            "extra_bar_types": (h1, h2),
+        }
+        defaults.update(overrides)
+        config = CobanRebornConfig(**defaults)
+        return CobanRebornStrategy(config)
+
+    # -- Fixed exit (high/low) -----------------------------------------------
+
+    def test_fixed_long_tp_via_high(self):
+        """Run a full backtest with fixed exit on oscillating data to cover TP path."""
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=["60-MINUTE-LAST-EXTERNAL", "120-MINUTE-LAST-EXTERNAL"],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+                "exit_mode": "fixed",
+                "take_profit_pips": 1,
+                "stop_loss_pips": 50,
+                "spread_pips": 0.0,
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert result.num_trades > 0
+
+    def test_fixed_short_sl_via_high(self):
+        """Fixed exit on downtrend data to cover SL path."""
+        bars_df = _make_bars(5000, seed=99, trend=-0.00005)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=["60-MINUTE-LAST-EXTERNAL", "120-MINUTE-LAST-EXTERNAL"],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+                "exit_mode": "fixed",
+                "take_profit_pips": 50,
+                "stop_loss_pips": 1,
+                "spread_pips": 0.0,
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)
+
+    # -- Trailing exit -------------------------------------------------------
+
+    def test_trailing_long_exit(self):
+        """Trailing exit on oscillating data."""
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=["60-MINUTE-LAST-EXTERNAL", "120-MINUTE-LAST-EXTERNAL"],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+                "exit_mode": "trailing",
+                "trailing_stop_pips": 5,
+                "stop_loss_pips": 50,
+                "spread_pips": 0.0,
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)
+
+    # -- ATR exit ------------------------------------------------------------
+
+    def test_atr_exit(self):
+        """ATR exit on oscillating data."""
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=["60-MINUTE-LAST-EXTERNAL", "120-MINUTE-LAST-EXTERNAL"],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+                "exit_mode": "atr",
+                "atr_tp_multiplier": 1.0,
+                "atr_sl_multiplier": 1.0,
+                "spread_pips": 0.0,
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)
+
+
+# ---------------------------------------------------------------------------
+# Integration tests for new modes
+# ---------------------------------------------------------------------------
+
+
+class TestNewModeIntegration:
+    """Integration tests running full backtests with new entry/exit modes."""
+
+    def test_trend_follow_runs(self):
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=[
+                "60-MINUTE-LAST-EXTERNAL",
+                "120-MINUTE-LAST-EXTERNAL",
+            ],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)
+        assert isinstance(result.num_trades, int)
+
+    def test_trailing_exit_runs(self):
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=[
+                "60-MINUTE-LAST-EXTERNAL",
+                "120-MINUTE-LAST-EXTERNAL",
+            ],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+                "exit_mode": "trailing",
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)
+
+    def test_atr_exit_runs(self):
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=[
+                "60-MINUTE-LAST-EXTERNAL",
+                "120-MINUTE-LAST-EXTERNAL",
+            ],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+                "exit_mode": "atr",
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)
+
+    def test_full_mode_backward_compat(self):
+        """entry_mode='full' should work the same as before."""
+        bars_df = _make_bars(3000)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=[
+                "60-MINUTE-LAST-EXTERNAL",
+                "120-MINUTE-LAST-EXTERNAL",
+            ],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "full",
+                "exit_mode": "fixed",
+                "double_confirm_enabled": False,
+                "m1_confirm_enabled": False,
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)
+
+    def test_get_entry_signal_dispatches_correctly(self):
+        """_get_entry_signal routes to the right method."""
+        from nautilus_trader.model.data import BarType
+        from nautilus_trader.model.identifiers import InstrumentId
+
+        m1 = BarType.from_str("EUR/USD.SIM-1-MINUTE-LAST-EXTERNAL")
+        h1 = BarType.from_str("EUR/USD.SIM-60-MINUTE-LAST-EXTERNAL")
+        h2 = BarType.from_str("EUR/USD.SIM-120-MINUTE-LAST-EXTERNAL")
+
+        # Test full mode dispatch
+        cfg_full = CobanRebornConfig(
+            instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
+            bar_type=m1, extra_bar_types=(h1, h2),
+            entry_mode="full",
+        )
+        s = CobanRebornStrategy(cfg_full)
+        # No signals set, so should return 0
+        assert s._get_entry_signal(1_000_000_000_000, cfg_full) == 0
+
+        # Test trend_follow mode dispatch
+        cfg_tf = CobanRebornConfig(
+            instrument_id=InstrumentId.from_str("EUR/USD.SIM"),
+            bar_type=m1, extra_bar_types=(h1, h2),
+            entry_mode="trend_follow",
+        )
+        s2 = CobanRebornStrategy(cfg_tf)
+        assert s2._get_entry_signal(1_000_000_000_000, cfg_tf) == 0
+
+    def test_trend_follow_with_5m_15m(self):
+        """Trend follow on 5m/15m timeframes."""
+        bars_df = _make_oscillating_bars(20000, seed=77)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=[
+                "5-MINUTE-LAST-EXTERNAL",
+                "15-MINUTE-LAST-EXTERNAL",
+            ],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+                "exit_mode": "atr",
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)

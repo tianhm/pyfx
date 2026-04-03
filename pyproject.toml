@@ -42,6 +42,7 @@ pyfx = "pyfx.cli:main"
 [project.entry-points."pyfx.strategies"]
 sample_sma = "pyfx.strategies.sample_sma:SMACrossStrategy"
 coban_reborn = "pyfx.strategies.coban_reborn:CobanRebornStrategy"
+coban_experimental = "pyfx.strategies.coban_experimental:CobanExperimentalStrategy"
 
 [tool.ruff]
 target-version = "py312"

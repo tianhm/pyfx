@@ -28,7 +28,8 @@ pyfx/
     base.py                  # PyfxStrategy base class (wraps NautilusTrader Strategy)
     loader.py                # Strategy discovery via entry points + directory scanning
     sample_sma.py            # SMA crossover demo strategy
-    coban_reborn.py          # Multi-timeframe confluence strategy (SMA+MACD+RSI)
+    coban_reborn.py          # Multi-timeframe strategy: "full" confluence or "trend_follow" mode
+    coban_experimental.py    # Experimental testbed for strategy variations (7 entry × 3 exit modes)
   data/
     dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet
   backtest/
@@ -53,7 +54,8 @@ tests/
 
 ```bash
 uv run pyfx backtest -s <strategy> --start <date> --end <date> --data-file <path>  # Run a backtest
-uv run pyfx backtest -s coban_reborn ... --extra-bar-type 60-MINUTE-LAST-EXTERNAL --extra-bar-type 120-MINUTE-LAST-EXTERNAL  # Multi-timeframe
+uv run pyfx backtest -s coban_reborn ... --extra-bar-type 60-MINUTE-LAST-EXTERNAL --extra-bar-type 120-MINUTE-LAST-EXTERNAL  # Full confluence (1h/2h)
+uv run pyfx backtest -s coban_reborn ... --extra-bar-type 5-MINUTE-LAST-EXTERNAL --extra-bar-type 15-MINUTE-LAST-EXTERNAL -p entry_mode=trend_follow -p exit_mode=atr  # Trend follow (5m/15m)
 uv run pyfx strategies                                                              # List available strategies
 uv run pyfx generate-sample-data                                                    # Create synthetic test data
 uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
@@ -89,6 +91,7 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 - `/add-feature` — plan and implement a new feature
 - `/fix-issue` — debug and fix a reported bug
 - `/ux-audit` — CLI ergonomics, output readability, dashboard usability audit
+- `/realism-audit` — audit backtest realism (slippage, intra-bar fills, spreads, position sizing)
 
 ## Strategy Development
 
@@ -141,6 +144,11 @@ All new code must include tests. No exceptions.
 - **MACD histogram**: NautilusTrader's `MovingAverageConvergenceDivergence` only provides the MACD line (`.value`), not the signal line or histogram. Compute these manually using two EMAs + a signal-line EMA.
 - **NautilusTrader indicators import**: Use `from nautilus_trader.indicators import RelativeStrengthIndex, SimpleMovingAverage, ExponentialMovingAverage` (top-level `indicators` module, not submodules like `indicators.rsi`)
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
+- **Backtest realism**: Runner uses `FillModel(prob_slippage=0.5, random_seed=42)` for 50% chance of 1-tick slippage on fills. Exit TP/SL checks use bar high/low (not close) for realistic intra-bar fills. `MakerTakerFeeModel` fees are low (0.002%) — spreads are the real cost for FX.
+- **CobanReborn entry_mode**: `"full"` (default) requires 5-layer confluence (often 0 trades). `"trend_follow"` uses SMA cross trigger + MACD/RSI direction filters (much more active). The `-p` CLI flag parses `true`/`false` as strings, not booleans — use `entry_mode=trend_follow` not boolean params via CLI.
+- **Non-FX instruments**: `TestInstrumentProvider.default_fx_ccy()` creates any pair with FX-style 5-decimal precision. For gold (XAU/USD ~$3000) and oil, the pip size (0.0001) is unrealistic — use ATR-based exits which auto-adapt to volatility. Fixed pip TP/SL need scaling (e.g., 300 pips for gold vs 10 for EUR/USD).
+- **Dukascopy CLI flags**: Use `-t m1` (not `-p m1`) for timeframe, `-v` for volumes, `-f csv` for format. Instrument names: `eurusd`, `usdjpy`, `gbpusd`, `xauusd`, `lightcmdusd` (WTI). `bcousd`/`brentcmdusd` returns empty data. Files land in `./download/` subdirectory by default.
+- **Sweep scripts**: `scripts/coban_sweep.py` runs 10 entry/exit variations on EUR/USD. `scripts/coban_multi_pair.py` runs top variations across 5 instruments. Both import `run_backtest` directly — run with `uv run python scripts/coban_sweep.py`.
 
 ## Security
 
