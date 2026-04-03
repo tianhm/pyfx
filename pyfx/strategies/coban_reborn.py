@@ -33,6 +33,8 @@ class CobanRebornConfig(PyfxStrategyConfig, frozen=True):
     macd_signal_period: int = 9
     rsi_period: int = 14
     take_profit_pips: int = 10
+    stop_loss_pips: int = 30
+    macd_reversal_exit: bool = True
     max_signal_window_seconds: int = 3600
     double_confirm_enabled: bool = True
     double_confirm_window_seconds: int = 600
@@ -363,17 +365,30 @@ class CobanRebornStrategy(PyfxStrategy):
                     self._h1_macd_signal, macd_line, self._macd_alpha,
                 )
             hist = macd_line - self._h1_macd_signal
+
+            # MACD reversal exit — close when histogram starts fading
+            if (
+                cfg.macd_reversal_exit
+                and not self.flat()
+                and self._h1_prev_hist != 0.0
+            ):
+                if self._trade_direction == 1 and hist < self._h1_prev_hist:
+                    self._h1_prev_hist = hist
+                    self.close_all()
+                    self._reset_signals()
+                    return
+                if self._trade_direction == -1 and hist > self._h1_prev_hist:
+                    self._h1_prev_hist = hist
+                    self.close_all()
+                    self._reset_signals()
+                    return
+
+            # MACD zero-line crossover for entry signals
             if self._h1_prev_hist != 0.0 and hist != 0.0:
                 if self._h1_prev_hist < 0 < hist:
-                    cross_dir = 1
-                    self._apply_signal(
-                        "h1_macd", cross_dir, ts, cfg,
-                    )
+                    self._apply_signal("h1_macd", 1, ts, cfg)
                 elif self._h1_prev_hist > 0 > hist:
-                    cross_dir = -1
-                    self._apply_signal(
-                        "h1_macd", cross_dir, ts, cfg,
-                    )
+                    self._apply_signal("h1_macd", -1, ts, cfg)
             self._h1_prev_hist = hist
 
         # 3. RSI trendline break
@@ -413,19 +428,30 @@ class CobanRebornStrategy(PyfxStrategy):
         if cfg.m1_confirm_enabled and self._m1_sma_fast.initialized:
             self._update_m1_signals(ts, cfg)
 
-        # Take profit check
+        # TP / SL check
         if not self.flat():
             price = float(bar.close)
             if self._entry_price > 0.0 and self._pip_size > 0.0:
                 tp_distance = cfg.take_profit_pips * self._pip_size
-                if self._trade_direction == 1 and (price - self._entry_price) >= tp_distance:
-                    self.close_all()
-                    self._reset_signals()
-                    return
-                if self._trade_direction == -1 and (self._entry_price - price) >= tp_distance:
-                    self.close_all()
-                    self._reset_signals()
-                    return
+                sl_distance = cfg.stop_loss_pips * self._pip_size
+                if self._trade_direction == 1:
+                    if (price - self._entry_price) >= tp_distance:
+                        self.close_all()
+                        self._reset_signals()
+                        return
+                    if (self._entry_price - price) >= sl_distance:
+                        self.close_all()
+                        self._reset_signals()
+                        return
+                if self._trade_direction == -1:
+                    if (self._entry_price - price) >= tp_distance:
+                        self.close_all()
+                        self._reset_signals()
+                        return
+                    if (price - self._entry_price) >= sl_distance:
+                        self.close_all()
+                        self._reset_signals()
+                        return
             return  # already in a trade, don't enter again
 
         # Entry check
