@@ -41,6 +41,12 @@ pyfx/
       management/commands/
         run_backtest.py      # CLI management command to run + save backtest
         run_backtest_web.py  # Subprocess command for web-triggered backtests
+research/
+  README.md                  # Research journal format and conventions
+  coban_reborn/journal.md    # CobanReborn strategy research journal
+scripts/
+  coban_sweep.py             # 10-variation backtest sweep (EUR/USD)
+  coban_multi_pair.py        # Multi-pair sweep (5 instruments)
 tests/
   conftest.py                # pytest-django configuration
   test_loader.py             # Strategy discovery tests
