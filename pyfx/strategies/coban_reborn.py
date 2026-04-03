@@ -34,7 +34,11 @@ class CobanRebornConfig(PyfxStrategyConfig, frozen=True):
     rsi_period: int = 14
     take_profit_pips: int = 10
     stop_loss_pips: int = 30
+    spread_pips: float = 1.5
     macd_reversal_exit: bool = True
+    macd_reversal_bars: int = 2
+    session_start_hour: int = 8
+    session_end_hour: int = 17
     max_signal_window_seconds: int = 3600
     double_confirm_enabled: bool = True
     double_confirm_window_seconds: int = 600
@@ -170,6 +174,12 @@ def _ts_seconds(ts_ns: int) -> float:
     return ts_ns / 1_000_000_000
 
 
+def _bar_hour_utc(ts_ns: int) -> int:
+    """Extract the UTC hour (0-23) from a nanosecond timestamp."""
+    seconds = ts_ns // 1_000_000_000
+    return (seconds % 86400) // 3600
+
+
 def _signals_within_window(
     timestamps: list[int],
     window_seconds: int,
@@ -274,6 +284,8 @@ class CobanRebornStrategy(PyfxStrategy):
         self._entry_price: float = 0.0
         self._trade_direction: int = 0  # +1 long, -1 short
         self._pip_size: float = 0.0
+        self._spread_cost: float = 0.0  # half-spread in price units
+        self._macd_reversal_count: int = 0  # consecutive bars of hist decline
 
     # -- Lifecycle -----------------------------------------------------------
 
@@ -295,6 +307,7 @@ class CobanRebornStrategy(PyfxStrategy):
             self._pip_size = float(instrument.price_increment) * 10
         else:
             self._pip_size = 0.0001  # fallback for FX  # pragma: no cover
+        self._spread_cost = cfg.spread_pips * self._pip_size
 
         # Register H1 indicators
         for ind in (
@@ -366,22 +379,25 @@ class CobanRebornStrategy(PyfxStrategy):
                 )
             hist = macd_line - self._h1_macd_signal
 
-            # MACD reversal exit — close when histogram starts fading
+            # MACD reversal exit — close after sustained histogram decline
             if (
                 cfg.macd_reversal_exit
                 and not self.flat()
                 and self._h1_prev_hist != 0.0
             ):
-                if self._trade_direction == 1 and hist < self._h1_prev_hist:
-                    self._h1_prev_hist = hist
-                    self.close_all()
-                    self._reset_signals()
-                    return
-                if self._trade_direction == -1 and hist > self._h1_prev_hist:
-                    self._h1_prev_hist = hist
-                    self.close_all()
-                    self._reset_signals()
-                    return
+                fading = (
+                    (self._trade_direction == 1 and hist < self._h1_prev_hist)
+                    or (self._trade_direction == -1 and hist > self._h1_prev_hist)
+                )
+                if fading:
+                    self._macd_reversal_count += 1
+                    if self._macd_reversal_count >= cfg.macd_reversal_bars:
+                        self._h1_prev_hist = hist
+                        self.close_all()
+                        self._reset_signals()
+                        return
+                else:
+                    self._macd_reversal_count = 0
 
             # MACD zero-line crossover for entry signals
             if self._h1_prev_hist != 0.0 and hist != 0.0:
@@ -428,12 +444,13 @@ class CobanRebornStrategy(PyfxStrategy):
         if cfg.m1_confirm_enabled and self._m1_sma_fast.initialized:
             self._update_m1_signals(ts, cfg)
 
-        # TP / SL check
+        # TP / SL check (spread-adjusted: TP shrinks, SL shrinks by spread)
         if not self.flat():
             price = float(bar.close)
             if self._entry_price > 0.0 and self._pip_size > 0.0:
-                tp_distance = cfg.take_profit_pips * self._pip_size
-                sl_distance = cfg.stop_loss_pips * self._pip_size
+                spread = self._spread_cost
+                tp_distance = cfg.take_profit_pips * self._pip_size - spread
+                sl_distance = cfg.stop_loss_pips * self._pip_size - spread
                 if self._trade_direction == 1:
                     if (price - self._entry_price) >= tp_distance:
                         self.close_all()
@@ -453,6 +470,11 @@ class CobanRebornStrategy(PyfxStrategy):
                         self._reset_signals()
                         return
             return  # already in a trade, don't enter again
+
+        # Session filter — only enter during configurable trading hours (UTC)
+        bar_hour = _bar_hour_utc(ts)
+        if bar_hour < cfg.session_start_hour or bar_hour >= cfg.session_end_hour:
+            return
 
         # Entry check
         if self._h1_complete_ts == _ZERO_TS:
@@ -602,3 +624,4 @@ class CobanRebornStrategy(PyfxStrategy):
         self._m1_sma_dir = 0
         self._m1_macd_dir = 0
         self._m1_rsi_dir = 0
+        self._macd_reversal_count = 0

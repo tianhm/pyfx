@@ -14,6 +14,7 @@ from pyfx.strategies.coban_reborn import (
     _ZERO_TS,
     CobanRebornConfig,
     CobanRebornStrategy,
+    _bar_hour_utc,
     _check_break,
     _find_local_extrema,
     _is_fresh,
@@ -262,6 +263,19 @@ class TestTimestampHelpers:
         now = 100_000_000_000_000
         ts = now - 120_000_000_000  # 120 seconds ago
         assert _is_fresh(ts, now, 60) is False
+
+    def test_bar_hour_utc(self):
+        # 2024-01-01 10:30:00 UTC = 10*3600 + 30*60 = 37800 seconds
+        ts_ns = 37800 * 1_000_000_000
+        assert _bar_hour_utc(ts_ns) == 10
+
+    def test_bar_hour_utc_midnight(self):
+        assert _bar_hour_utc(0) == 0
+
+    def test_bar_hour_utc_late(self):
+        # 23:00 UTC
+        ts_ns = 23 * 3600 * 1_000_000_000
+        assert _bar_hour_utc(ts_ns) == 23
 
 
 # ---------------------------------------------------------------------------
