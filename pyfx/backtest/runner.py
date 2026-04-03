@@ -366,7 +366,7 @@ def _extract_results(
 
             trades.append(TradeRecord(
                 instrument=str(row.get("instrument_id", config.instrument)),
-                side=str(row.get("side", "")),
+                side=str(row.get("entry", row.get("side", ""))),
                 quantity=float(str(row.get("quantity", "0")).split()[0]),
                 open_price=_parse_nautilus_money(row.get("avg_px_open", "0"))[0],
                 close_price=close_price,
@@ -396,21 +396,22 @@ def _extract_results(
         if gross_losses > 0:
             profit_factor = gross_wins / gross_losses
 
-        # Extract equity curve from account report
-        account_report: pd.DataFrame = engine.trader.generate_account_report(venue)
-        # The report uses "total" for account balance (not "balance")
-        bal_col = "total" if "total" in account_report.columns else "balance"
-        if not account_report.empty and bal_col in account_report.columns:
-            balances = account_report[bal_col].apply(
-                lambda x: float(str(x).replace(",", "")) if pd.notna(x) else 0.0
+        # Build equity curve from trade P&L (more reliable than account report
+        # for cross-currency pairs where the balance column may not reflect P&L)
+        sorted_trades = sorted(trades, key=lambda t: t.closed_at)
+        running_balance = config.balance
+        balances_list: list[float] = [running_balance]
+        for t in sorted_trades:
+            running_balance += t.realized_pnl
+            balances_list.append(running_balance)
+            equity_curve.append(
+                EquityPoint(timestamp=t.closed_at, balance=running_balance)
             )
-            peak = balances.cummax()
-            drawdown = (balances - peak) / peak * 100
-            max_drawdown_pct = float(drawdown.min())
 
-            for ts, bal in zip(account_report.index, balances):
-                dt = _to_utc_datetime(ts)
-                equity_curve.append(EquityPoint(timestamp=dt, balance=float(bal)))
+        balance_arr = np.array(balances_list)
+        peak = np.maximum.accumulate(balance_arr)
+        drawdown = (balance_arr - peak) / peak * 100
+        max_drawdown_pct = float(drawdown.min())
 
     # Add start point to equity curve
     if not equity_curve:
