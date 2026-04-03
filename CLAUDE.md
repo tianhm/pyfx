@@ -70,7 +70,9 @@ uv run pyfx generate-sample-data                                                
 uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
 uv run pyfx data list                                                               # List registered datasets
 uv run pyfx data scan                                                               # Scan data dir and register Parquet files
-uv run pyfx web                                                                     # Start Django dashboard (auto-scans data dir)
+uv run pyfx web                                                                     # Start Django dashboard (auto-reload enabled)
+uv run pyfx web --no-reload                                                          # Start without auto-reload
+uv run pyfx manage <command>                                                         # Run any Django management command
 ```
 
 ## Configuration

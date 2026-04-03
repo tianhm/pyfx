@@ -191,7 +191,8 @@ def ingest(input_path: Path, output_path: Path | None) -> None:
 @main.command("web")
 @click.option("--host", default="127.0.0.1", help="Host to bind")
 @click.option("--port", default=8000, help="Port to bind")
-def web(host: str, port: int) -> None:
+@click.option("--no-reload", is_flag=True, default=False, help="Disable auto-reload")
+def web(host: str, port: int, no_reload: bool) -> None:
     """Start the Django dashboard."""
     import os
 
@@ -214,7 +215,27 @@ def web(host: str, port: int) -> None:
         click.echo(f"Registered {registered} new dataset(s) from data directory.")
 
     click.echo(f"Starting pyfx dashboard at http://{host}:{port}/")
-    execute_from_command_line(["pyfx", "runserver", f"{host}:{port}", "--noreload"])
+    argv = ["pyfx", "runserver", f"{host}:{port}"]
+    if no_reload:
+        argv.append("--noreload")
+    execute_from_command_line(argv)
+
+
+@main.command("manage", context_settings={"ignore_unknown_options": True})
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def manage(args: tuple[str, ...]) -> None:
+    """Run Django management commands (e.g. pyfx manage migrate)."""
+    import os
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
+
+    import django
+
+    django.setup()
+
+    from django.core.management import execute_from_command_line
+
+    execute_from_command_line(["pyfx", *args])
 
 
 @main.group()
