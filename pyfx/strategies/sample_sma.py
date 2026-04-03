@@ -28,6 +28,13 @@ class SMACrossStrategy(PyfxStrategy):
         self.fast_sma = SimpleMovingAverage(config.fast_period)
         self.slow_sma = SimpleMovingAverage(config.slow_period)
 
+    @classmethod
+    def chart_indicators(cls) -> list[dict[str, object]]:
+        return [
+            {"name": "sma", "period": 10},
+            {"name": "sma", "period": 50},
+        ]
+
     def on_start(self) -> None:
         self.register_indicator_for_bars(self.config.bar_type, self.fast_sma)
         self.register_indicator_for_bars(self.config.bar_type, self.slow_sma)

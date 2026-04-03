@@ -1120,3 +1120,13 @@ class TestNewModeIntegration:
         )
         result = run_backtest(config, bars_df)
         assert isinstance(result.total_pnl, float)
+
+
+def test_coban_reborn_chart_indicators() -> None:
+    """chart_indicators() returns expected defaults for CobanReborn."""
+    indicators = CobanRebornStrategy.chart_indicators()
+    assert len(indicators) == 4
+    names = [i["name"] for i in indicators]
+    assert "sma" in names
+    assert "rsi" in names
+    assert "macd" in names

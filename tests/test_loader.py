@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from pyfx.strategies.base import PyfxStrategy
 from pyfx.strategies.loader import (
     _camel_to_snake,
     _load_directory_strategies,
@@ -19,6 +20,11 @@ def test_camel_to_snake() -> None:
     assert _camel_to_snake("MyStrategy") == "my_strategy"
     assert _camel_to_snake("Strategy") == "strategy"
     assert _camel_to_snake("RSITrendStrategy") == "rsi_trend_strategy"
+
+
+def test_base_chart_indicators_default() -> None:
+    """Base PyfxStrategy.chart_indicators() returns empty list."""
+    assert PyfxStrategy.chart_indicators() == []
 
 
 def test_discover_entry_point_strategies() -> None:

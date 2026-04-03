@@ -99,11 +99,62 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
         num_wins = round(run.num_trades * wr)
         num_losses = run.num_trades - num_wins
 
+    # Build trade markers JSON for the price chart
+    trade_markers: list[dict[str, object]] = []
+    for t in trades:
+        # Entry marker
+        trade_markers.append({
+            "time": int(t.opened_at.timestamp()),
+            "side": t.side,
+            "type": "entry",
+            "price": float(t.open_price),
+            "pnl": round(float(t.realized_pnl), 2),
+        })
+        # Exit marker
+        trade_markers.append({
+            "time": int(t.closed_at.timestamp()),
+            "side": t.side,
+            "type": "exit",
+            "price": float(t.close_price),
+            "pnl": round(float(t.realized_pnl), 2),
+        })
+
+    # Available timeframes for chart selector
+    available_timeframes = ["1-MINUTE-LAST-EXTERNAL"]
+    if run.extra_bar_types:
+        for bt in run.extra_bar_types:
+            if bt not in available_timeframes:
+                available_timeframes.append(bt)
+    # Add common resampled timeframes
+    for tf in [
+        "5-MINUTE-LAST-EXTERNAL",
+        "15-MINUTE-LAST-EXTERNAL",
+        "60-MINUTE-LAST-EXTERNAL",
+        "240-MINUTE-LAST-EXTERNAL",
+        "1-DAY-LAST-EXTERNAL",
+    ]:
+        if tf not in available_timeframes:
+            available_timeframes.append(tf)
+
+    # Get strategy chart indicator defaults
+    chart_indicators: list[dict[str, object]] = []
+    try:
+        from pyfx.strategies.loader import get_strategy as _get_strat
+
+        strat_cls = _get_strat(run.strategy, None)
+        if hasattr(strat_cls, "chart_indicators"):
+            chart_indicators = strat_cls.chart_indicators()
+    except Exception:  # noqa: BLE001
+        pass
+
     return render(request, "dashboard/backtest_detail.html", {
         "active_nav": "backtests",
         "run": run,
         "trades": trades,
         "cumulative_pnl_json": json.dumps(cumulative_pnl),
+        "trade_markers_json": json.dumps(trade_markers),
+        "available_timeframes_json": json.dumps(available_timeframes),
+        "chart_indicators_json": json.dumps(chart_indicators),
         "expectancy": expectancy,
         "win_loss_ratio": win_loss_ratio,
         "num_wins": num_wins,
@@ -329,6 +380,122 @@ def _find_strategy_config(strategy_cls: type) -> type | None:
             return attr
 
     return None
+
+
+_VALID_TIMEFRAMES = {
+    "1-MINUTE-LAST-EXTERNAL",
+    "5-MINUTE-LAST-EXTERNAL",
+    "15-MINUTE-LAST-EXTERNAL",
+    "60-MINUTE-LAST-EXTERNAL",
+    "240-MINUTE-LAST-EXTERNAL",
+    "1-DAY-LAST-EXTERNAL",
+}
+_VALID_INDICATORS = {"sma", "ema", "rsi", "macd", "atr"}
+_MAX_RESPONSE_BARS = 10_000
+_MAX_INDICATOR_PERIOD = 500
+
+
+def api_bars(request: HttpRequest, pk: int) -> JsonResponse:
+    """Return OHLCV bar data for charting."""
+    import math
+
+    import pandas as pd
+
+    from pyfx.data.resample import load_bars
+
+    run = get_object_or_404(BacktestRun, pk=pk)
+    timeframe = request.GET.get("timeframe")
+
+    if timeframe is not None and timeframe not in _VALID_TIMEFRAMES:
+        return JsonResponse({"error": "Invalid timeframe"}, status=400)
+
+    try:
+        df = load_bars(run.data_file, timeframe=timeframe)
+    except FileNotFoundError:
+        return JsonResponse({"error": "Data file not found"}, status=404)
+
+    # Auto-downsample if too many bars and no explicit timeframe
+    if len(df) > _MAX_RESPONSE_BARS and timeframe is None:
+        factor = math.ceil(len(df) / _MAX_RESPONSE_BARS)
+        auto_tf = f"{factor}-MINUTE-LAST-EXTERNAL"
+        df = load_bars(run.data_file, timeframe=auto_tf)
+
+    # Hard cap on response size
+    if len(df) > _MAX_RESPONSE_BARS:
+        df = df.iloc[-_MAX_RESPONSE_BARS:]
+
+    data: list[dict[str, object]] = []
+    for ts, row in df.iterrows():
+        entry: dict[str, object] = {
+            "time": int(pd.Timestamp(str(ts)).timestamp()),
+            "open": round(float(row["open"]), 6),
+            "high": round(float(row["high"]), 6),
+            "low": round(float(row["low"]), 6),
+            "close": round(float(row["close"]), 6),
+        }
+        if "volume" in row.index:
+            entry["volume"] = round(float(row["volume"]), 2)
+        data.append(entry)
+
+    return JsonResponse(data, safe=False)
+
+
+def api_indicators(request: HttpRequest, pk: int) -> JsonResponse:
+    """Compute and return indicator values for charting."""
+    import pandas as pd
+
+    from pyfx.data.resample import compute_indicator, load_bars
+
+    run = get_object_or_404(BacktestRun, pk=pk)
+    name = request.GET.get("name", "")
+    period_str = request.GET.get("period", "14")
+    timeframe = request.GET.get("timeframe")
+
+    if not name or name not in _VALID_INDICATORS:
+        return JsonResponse({"error": "Invalid indicator name"}, status=400)
+
+    try:
+        period = int(period_str)
+    except ValueError:
+        return JsonResponse({"error": "Invalid 'period' parameter"}, status=400)
+
+    if not (1 <= period <= _MAX_INDICATOR_PERIOD):
+        return JsonResponse(
+            {"error": f"period must be between 1 and {_MAX_INDICATOR_PERIOD}"},
+            status=400,
+        )
+
+    if timeframe is not None and timeframe not in _VALID_TIMEFRAMES:
+        return JsonResponse({"error": "Invalid timeframe"}, status=400)
+
+    try:
+        df = load_bars(run.data_file, timeframe=timeframe)
+    except FileNotFoundError:
+        return JsonResponse({"error": "Data file not found"}, status=404)
+
+    result = compute_indicator(df, name, period)
+
+    if isinstance(result, dict):
+        # MACD returns multiple series
+        response: dict[str, list[dict[str, object]]] = {}
+        for key, series in result.items():
+            response[key] = [
+                {
+                    "time": int(pd.Timestamp(str(ts)).timestamp()),
+                    "value": round(float(v), 8),
+                }
+                for ts, v in series.dropna().items()
+            ]
+        return JsonResponse(response)
+
+    data: list[dict[str, object]] = [
+        {
+            "time": int(pd.Timestamp(str(ts)).timestamp()),
+            "value": round(float(v), 8),
+        }
+        for ts, v in result.dropna().items()
+    ]
+    return JsonResponse(data, safe=False)
 
 
 def api_equity_curve(request: HttpRequest, pk: int) -> JsonResponse:

@@ -68,6 +68,19 @@ class PyfxStrategy(Strategy):  # type: ignore[misc]
         """Close all positions for our instrument."""
         self.close_all_positions(self.config.instrument_id)
 
+    # -- Chart indicator defaults -----------------------------------------------
+
+    @classmethod
+    def chart_indicators(cls) -> list[dict[str, object]]:
+        """Return default indicators to display on the backtest chart.
+
+        Override in subclasses to provide strategy-specific defaults.
+        Each entry should have ``name`` (sma, ema, rsi, macd, atr) and
+        ``period`` (int).  Optional ``pane`` key: ``"main"`` for overlays,
+        ``"below"`` for separate panes (auto-detected if omitted).
+        """
+        return []
+
     # -- Lifecycle hooks for subclasses ---------------------------------------
 
     def on_start(self) -> None:
