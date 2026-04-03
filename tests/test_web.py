@@ -378,6 +378,19 @@ class ApiBacktestStatusViewTests(TestCase):
         data = json.loads(resp.content)
         assert data["status"] == "running"
 
+    def test_status_includes_progress(self):
+        run = _create_run(
+            status=BacktestRun.STATUS_RUNNING,
+            progress_pct=20,
+            progress_message="Running engine...",
+            total_bars=525600,
+        )
+        resp = self.client.get(f"/api/run/{run.pk}/status/")
+        data = json.loads(resp.content)
+        assert data["progress_pct"] == 20
+        assert data["progress_message"] == "Running engine..."
+        assert data["total_bars"] == 525600
+
     def test_status_failed(self):
         run = _create_run(
             status=BacktestRun.STATUS_FAILED,
@@ -409,6 +422,45 @@ class ApiRunningCountViewTests(TestCase):
         resp = self.client.get("/api/running-count/")
         data = json.loads(resp.content)
         assert data["running"] == 2
+
+
+class ApiRunningBacktestsViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_no_running(self):
+        resp = self.client.get("/api/running-backtests/")
+        data = json.loads(resp.content)
+        assert data == []
+
+    def test_returns_running_only(self):
+        _create_run(status=BacktestRun.STATUS_RUNNING)
+        _create_run(status=BacktestRun.STATUS_COMPLETED)
+        _create_run(status=BacktestRun.STATUS_FAILED)
+        resp = self.client.get("/api/running-backtests/")
+        data = json.loads(resp.content)
+        assert len(data) == 1
+
+    def test_response_fields(self):
+        run = _create_run(
+            status=BacktestRun.STATUS_RUNNING,
+            progress_pct=20,
+            progress_message="Running engine...",
+            total_bars=100000,
+        )
+        resp = self.client.get("/api/running-backtests/")
+        data = json.loads(resp.content)
+        assert len(data) == 1
+        bt = data[0]
+        assert bt["id"] == run.pk
+        assert bt["strategy"] == "sample_sma"
+        assert bt["instrument"] == "EUR/USD"
+        assert bt["start"] == "2024-01-01"
+        assert bt["end"] == "2024-06-30"
+        assert "created_at" in bt
+        assert bt["progress_pct"] == 20
+        assert bt["progress_message"] == "Running engine..."
+        assert bt["total_bars"] == 100000
 
 
 class ModelTests(TestCase):
@@ -458,6 +510,13 @@ class ModelTests(TestCase):
         snaps = list(EquitySnapshot.objects.filter(run=run))
         assert snaps[0].pk == e2.pk  # Earlier timestamp first
 
+    def test_progress_fields_defaults(self):
+        run = _create_run()
+        fresh = BacktestRun.objects.get(pk=run.pk)
+        assert fresh.progress_pct == 0
+        assert fresh.progress_message == ""
+        assert fresh.total_bars == 0
+
     def test_status_choices(self):
         assert BacktestRun.STATUS_RUNNING == "running"
         assert BacktestRun.STATUS_COMPLETED == "completed"
@@ -491,6 +550,7 @@ class RunBacktestWebCommandTests(TestCase):
         mock_df = MagicMock()
         mock_df.index.tz = "UTC"
         mock_df.empty = False
+        mock_df.__len__ = MagicMock(return_value=1000)
         mock_df.loc.__getitem__ = MagicMock(return_value=mock_df)
         mock_read_parquet.return_value = mock_df
 
@@ -516,6 +576,9 @@ class RunBacktestWebCommandTests(TestCase):
         run.refresh_from_db()
         assert run.status == BacktestRun.STATUS_COMPLETED
         assert run.total_pnl == 200.0
+        assert run.progress_pct == 100
+        assert run.progress_message == "Complete"
+        assert run.total_bars == 1000
 
     def test_missing_run_id(self):
         from io import StringIO
@@ -538,6 +601,7 @@ class RunBacktestWebCommandTests(TestCase):
         mock_df = MagicMock()
         mock_df.index.tz = "UTC"
         mock_df.empty = False
+        mock_df.__len__ = MagicMock(return_value=500)
         mock_df.loc.__getitem__ = MagicMock(return_value=mock_df)
         mock_read_parquet.return_value = mock_df
 
@@ -548,6 +612,7 @@ class RunBacktestWebCommandTests(TestCase):
         run.refresh_from_db()
         assert run.status == BacktestRun.STATUS_FAILED
         assert "Engine crash" in run.error_message
+        assert run.progress_message == "Failed"
 
     def test_missing_data_file(self):
         run = _create_run(
@@ -590,6 +655,7 @@ class RunBacktestWebCsvTests(TestCase):
         mock_df = MagicMock()
         mock_df.index.tz = "UTC"
         mock_df.empty = False
+        mock_df.__len__ = MagicMock(return_value=1000)
         mock_df.loc.__getitem__ = MagicMock(return_value=mock_df)
         mock_read_csv.return_value = mock_df
 
@@ -651,6 +717,7 @@ class RunBacktestWebCsvTests(TestCase):
         mock_df.index.tz = None  # Naive timezone
         mock_localized = MagicMock()
         mock_localized.empty = False
+        mock_localized.__len__ = MagicMock(return_value=1000)
         mock_localized.loc.__getitem__ = MagicMock(return_value=mock_localized)
         mock_df.index.tz_localize.return_value = mock_localized
         mock_df.loc.__getitem__ = MagicMock(return_value=mock_localized)

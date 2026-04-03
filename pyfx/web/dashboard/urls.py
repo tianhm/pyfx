@@ -15,4 +15,5 @@ urlpatterns = [
     path("api/run/<int:pk>/equity/", views.api_equity_curve, name="api_equity_curve"),
     path("api/run/<int:pk>/trades/", views.api_trades, name="api_trades"),
     path("api/running-count/", views.api_running_count, name="api_running_count"),
+    path("api/running-backtests/", views.api_running_backtests, name="api_running_backtests"),
 ]

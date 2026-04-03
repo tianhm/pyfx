@@ -30,7 +30,18 @@ class Command(BaseCommand):  # type: ignore[misc]
             self.stderr.write(f"BacktestRun {run_id} not found")
             return
 
+        def _update_progress(pct: int, msg: str, **extra: object) -> None:
+            run.progress_pct = pct
+            run.progress_message = msg
+            fields = ["progress_pct", "progress_message"]
+            for k, v in extra.items():
+                setattr(run, k, v)
+                fields.append(k)
+            run.save(update_fields=fields)
+
         try:
+            _update_progress(5, "Initializing...")
+
             config = BacktestConfig(
                 strategy=run.strategy,
                 instrument=run.instrument,
@@ -43,6 +54,8 @@ class Command(BaseCommand):  # type: ignore[misc]
                 leverage=run.leverage,
                 strategy_params=run.strategy_params,
             )
+
+            _update_progress(10, "Loading data...")
 
             data_file = Path(run.data_file)
             if not data_file.exists():
@@ -60,7 +73,11 @@ class Command(BaseCommand):  # type: ignore[misc]
             if bars_df.empty:
                 raise ValueError("No data in the specified date range")
 
+            _update_progress(20, "Running engine...", total_bars=len(bars_df))
+
             result = run_backtest(config, bars_df, log_level=str(options["log_level"]))
+
+            _update_progress(90, "Saving results...")
 
             # Update the run with results
             run.total_pnl = result.total_pnl
@@ -74,6 +91,8 @@ class Command(BaseCommand):  # type: ignore[misc]
             run.profit_factor = result.profit_factor
             run.duration_seconds = result.duration_seconds
             run.status = BacktestRun.STATUS_COMPLETED
+            run.progress_pct = 100
+            run.progress_message = "Complete"
             run.save()
 
             Trade.objects.bulk_create([
@@ -101,4 +120,5 @@ class Command(BaseCommand):  # type: ignore[misc]
         except Exception:
             run.status = BacktestRun.STATUS_FAILED
             run.error_message = traceback.format_exc()
+            run.progress_message = "Failed"
             run.save()

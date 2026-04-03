@@ -274,9 +274,31 @@ def api_backtest_status(request: HttpRequest, pk: int) -> JsonResponse:
     return JsonResponse({
         "status": run.status,
         "error_message": run.error_message,
+        "progress_pct": run.progress_pct,
+        "progress_message": run.progress_message,
+        "total_bars": run.total_bars,
     })
 
 
 def api_running_count(request: HttpRequest) -> JsonResponse:
     count = BacktestRun.objects.filter(status=BacktestRun.STATUS_RUNNING).count()
     return JsonResponse({"running": count})
+
+
+def api_running_backtests(request: HttpRequest) -> JsonResponse:
+    running = BacktestRun.objects.filter(status=BacktestRun.STATUS_RUNNING)
+    data = [
+        {
+            "id": r.pk,
+            "strategy": r.strategy,
+            "instrument": r.instrument,
+            "start": r.start.strftime("%Y-%m-%d"),
+            "end": r.end.strftime("%Y-%m-%d"),
+            "created_at": r.created_at.isoformat(),
+            "progress_pct": r.progress_pct,
+            "progress_message": r.progress_message,
+            "total_bars": r.total_bars,
+        }
+        for r in running
+    ]
+    return JsonResponse(data, safe=False)
