@@ -161,6 +161,10 @@ def web(host: str, port: int) -> None:
 
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
 
+    import django
+
+    django.setup()
+
     from django.core.management import call_command, execute_from_command_line
 
     # Auto-migrate on first run
@@ -225,7 +229,6 @@ def _save_to_django(result) -> None:
 
     from django.core.management import call_command
     call_command("migrate", "--run-syncdb", verbosity=0)
-
 
     from pyfx.web.dashboard.models import BacktestRun, EquitySnapshot, Trade
 
