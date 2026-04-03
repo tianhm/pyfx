@@ -45,12 +45,12 @@
         <h1 class="text-2xl font-bold">Backtests</h1>
         <p class="text-sm text-base-content/50 mt-1">{{ runs|length }} run{{ runs|length|pluralize }}</p>
     </div>
-    <button class="btn btn-primary btn-sm" onclick="document.getElementById('new-backtest-modal').showModal()">
+    <a href="{% url 'dashboard:backtest_new' %}" class="btn btn-primary btn-sm">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
             <path d="M12 5v14m-7-7h14" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         New Backtest
-    </button>
+    </a>
 </div>
 
 <!-- Running Backtests (populated by JS) -->
@@ -135,149 +135,11 @@
 </div>
 {% endif %}
 
-<!-- New Backtest Modal -->
-<dialog id="new-backtest-modal" class="modal">
-    <div class="modal-box max-w-lg">
-        <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">&times;</button>
-        </form>
-        <h3 class="font-bold text-lg mb-4">New Backtest</h3>
-        <form id="backtest-form" method="post" action="{% url 'dashboard:backtest_start' %}">
-            {% csrf_token %}
-            <div class="space-y-4">
-                <!-- Strategy -->
-                <div class="form-control">
-                    <label class="label"><span class="label-text font-medium">Strategy</span></label>
-                    <select id="strategy-select" name="strategy" class="select select-bordered w-full" required>
-                        <option value="" disabled selected>Loading strategies&hellip;</option>
-                    </select>
-                </div>
-
-                <!-- Instrument -->
-                <div class="form-control">
-                    <label class="label"><span class="label-text font-medium">Instrument</span></label>
-                    <input type="text" name="instrument" value="EUR/USD" class="input input-bordered w-full" required />
-                </div>
-
-                <!-- Date Range -->
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="form-control">
-                        <label class="label"><span class="label-text font-medium">Start Date</span></label>
-                        <input type="date" name="start" class="input input-bordered w-full" required />
-                    </div>
-                    <div class="form-control">
-                        <label class="label"><span class="label-text font-medium">End Date</span></label>
-                        <input type="date" name="end" class="input input-bordered w-full" required />
-                    </div>
-                </div>
-
-                <!-- Data File -->
-                <div class="form-control">
-                    <label class="label"><span class="label-text font-medium">Data File</span></label>
-                    <input type="text" name="data_file" placeholder="~/.pyfx/data/EURUSD_365d_M1.parquet" class="input input-bordered w-full font-mono text-sm" required />
-                    <label class="label"><span class="label-text-alt opacity-50">Path to CSV or Parquet file with OHLCV data</span></label>
-                </div>
-
-                <!-- Advanced Settings (collapsible) -->
-                <div class="collapse collapse-arrow bg-base-200 rounded-lg">
-                    <input type="checkbox" />
-                    <div class="collapse-title text-sm font-medium py-2">Advanced Settings</div>
-                    <div class="collapse-content">
-                        <div class="grid grid-cols-2 gap-3 pt-2">
-                            <div class="form-control">
-                                <label class="label py-1"><span class="label-text text-xs">Balance</span></label>
-                                <input type="number" name="balance" value="100000" class="input input-bordered input-sm w-full" />
-                            </div>
-                            <div class="form-control">
-                                <label class="label py-1"><span class="label-text text-xs">Leverage</span></label>
-                                <input type="number" name="leverage" value="50" class="input input-bordered input-sm w-full" />
-                            </div>
-                            <div class="form-control">
-                                <label class="label py-1"><span class="label-text text-xs">Trade Size</span></label>
-                                <input type="number" name="trade_size" value="100000" class="input input-bordered input-sm w-full" />
-                            </div>
-                            <div class="form-control">
-                                <label class="label py-1"><span class="label-text text-xs">Bar Type</span></label>
-                                <input type="text" name="bar_type" value="1-MINUTE-LAST-EXTERNAL" class="input input-bordered input-sm w-full font-mono text-xs" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Strategy Params (dynamic) -->
-                <div id="strategy-params-container" class="hidden">
-                    <label class="label"><span class="label-text font-medium">Strategy Parameters</span></label>
-                    <div id="strategy-params" class="space-y-2"></div>
-                </div>
-            </div>
-
-            <div class="modal-action">
-                <button type="submit" id="submit-btn" class="btn btn-primary w-full">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
-                        <polygon points="5 3 19 12 5 21 5 3"/>
-                    </svg>
-                    Start Backtest
-                </button>
-            </div>
-        </form>
-    </div>
-    <form method="dialog" class="modal-backdrop"><button>close</button></form>
-</dialog>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const select = document.getElementById('strategy-select');
-    const paramsContainer = document.getElementById('strategy-params-container');
-    const paramsDiv = document.getElementById('strategy-params');
-    let strategiesData = {};
-
-    // Load strategies
-    fetch('{% url "dashboard:api_strategies" %}')
-        .then(r => r.json())
-        .then(data => {
-            select.innerHTML = '<option value="" disabled selected>Select a strategy</option>';
-            data.forEach(s => {
-                strategiesData[s.name] = s.params;
-                const opt = document.createElement('option');
-                opt.value = s.name;
-                opt.textContent = s.name;
-                select.appendChild(opt);
-            });
-        });
-
-    // Dynamic strategy params
-    select.addEventListener('change', function() {
-        const params = strategiesData[this.value] || [];
-        paramsDiv.innerHTML = '';
-        if (params.length === 0) {
-            paramsContainer.classList.add('hidden');
-            return;
-        }
-        paramsContainer.classList.remove('hidden');
-        params.forEach(p => {
-            const div = document.createElement('div');
-            div.className = 'flex items-center gap-2';
-            div.innerHTML = `
-                <label class="text-sm w-32 shrink-0 font-mono">${p.name}</label>
-                <input type="${p.type === 'int' || p.type === 'float' ? 'number' : 'text'}"
-                       name="param_${p.name}"
-                       value="${p.default !== null ? p.default : ''}"
-                       ${p.type === 'float' ? 'step="any"' : ''}
-                       class="input input-bordered input-sm flex-1" />
-            `;
-            paramsDiv.appendChild(div);
-        });
-    });
-
-    // Form submit loading state
-    document.getElementById('backtest-form').addEventListener('submit', function() {
-        const btn = document.getElementById('submit-btn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Starting&hellip;';
-    });
-
     // ── Running backtests live progress ──
     const container = document.getElementById('running-backtests');
     let knownRunIds = new Set();

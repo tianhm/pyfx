@@ -171,7 +171,11 @@ class BacktestDetailViewTests(TestCase):
     def test_detail_cumulative_pnl(self):
         resp = self.client.get(f"/run/{self.run.pk}/")
         pnl = json.loads(resp.context["cumulative_pnl_json"])
-        assert pnl == [100.0, 50.0]
+        assert len(pnl) == 2
+        assert pnl[0]["value"] == 100.0
+        assert pnl[1]["value"] == 50.0
+        assert "time" in pnl[0]
+        assert isinstance(pnl[0]["time"], int)
 
     def test_detail_404(self):
         resp = self.client.get("/run/99999/")
@@ -191,6 +195,14 @@ class BacktestDetailViewTests(TestCase):
         resp = self.client.get(f"/run/{run.pk}/")
         assert resp.status_code == 200
         assert b"running" in resp.content.lower()
+
+    def test_detail_shows_strategy_params(self):
+        run = _create_run(strategy_params={"entry_mode": "relaxed", "rsi_period": 14})
+        resp = self.client.get(f"/run/{run.pk}/")
+        content = resp.content.decode()
+        assert "entry_mode" in content
+        assert "relaxed" in content
+        assert "rsi_period" in content
 
 
 class BacktestDeleteViewTests(TestCase):
@@ -295,6 +307,24 @@ class BacktestStartViewTests(TestCase):
         })
         run = BacktestRun.objects.latest("created_at")
         assert "~" not in run.data_file
+
+
+class BacktestNewViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_new_page_200(self):
+        resp = self.client.get("/backtests/new/")
+        assert resp.status_code == 200
+        assert b"New Backtest" in resp.content
+
+    def test_new_page_active_nav(self):
+        resp = self.client.get("/backtests/new/")
+        assert resp.context["active_nav"] == "backtests"
+
+    def test_list_links_to_new_page(self):
+        resp = self.client.get("/backtests/")
+        assert b"/backtests/new/" in resp.content
 
 
 class ApiStrategiesViewTests(TestCase):
@@ -760,3 +790,102 @@ class FindStrategyConfigTests(TestCase):
 
         result = _find_strategy_config(object)
         assert result is None
+
+
+class CategorizeParamTests(TestCase):
+    def test_indicators_category(self):
+        from pyfx.web.dashboard.views import _categorize_param
+
+        assert _categorize_param("entry_mode") == "indicators"
+        assert _categorize_param("sma_fast_period") == "indicators"
+        assert _categorize_param("rsi_period") == "indicators"
+        assert _categorize_param("rsi_level_threshold") == "indicators"
+
+    def test_exits_category(self):
+        from pyfx.web.dashboard.views import _categorize_param
+
+        assert _categorize_param("exit_mode") == "exits"
+        assert _categorize_param("take_profit_pips") == "exits"
+        assert _categorize_param("stop_loss_pips") == "exits"
+        assert _categorize_param("trailing_stop_pips") == "exits"
+        assert _categorize_param("atr_tp_multiplier") == "exits"
+        assert _categorize_param("spread_pips") == "exits"
+        assert _categorize_param("macd_reversal_exit") == "exits"
+        assert _categorize_param("macd_reversal_bars") == "exits"
+
+    def test_timing_category(self):
+        from pyfx.web.dashboard.views import _categorize_param
+
+        assert _categorize_param("session_start_hour") == "timing"
+        assert _categorize_param("max_signal_window_seconds") == "timing"
+        assert _categorize_param("double_confirm_enabled") == "timing"
+
+    def test_advanced_category(self):
+        from pyfx.web.dashboard.views import _categorize_param
+
+        assert _categorize_param("rsi_buffer_size") == "advanced"
+        assert _categorize_param("trade_size") == "advanced"
+
+
+class BoolParamParsingTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    @patch("pyfx.web.dashboard.views.subprocess.Popen")
+    def test_start_parses_bool_true(self, mock_popen):
+        self.client.post("/backtests/start/", {
+            "strategy": "sample_sma",
+            "instrument": "EUR/USD",
+            "start": "2024-01-01",
+            "end": "2024-06-30",
+            "data_file": "/tmp/test.parquet",
+            "balance": "100000",
+            "leverage": "50",
+            "trade_size": "100000",
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+            "param_macd_reversal_exit": "true",
+        })
+        run = BacktestRun.objects.latest("created_at")
+        assert run.strategy_params["macd_reversal_exit"] is True
+
+    @patch("pyfx.web.dashboard.views.subprocess.Popen")
+    def test_start_parses_bool_false(self, mock_popen):
+        self.client.post("/backtests/start/", {
+            "strategy": "sample_sma",
+            "instrument": "EUR/USD",
+            "start": "2024-01-01",
+            "end": "2024-06-30",
+            "data_file": "/tmp/test.parquet",
+            "balance": "100000",
+            "leverage": "50",
+            "trade_size": "100000",
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+            "param_some_flag": "false",
+        })
+        run = BacktestRun.objects.latest("created_at")
+        assert run.strategy_params["some_flag"] is False
+
+
+class ApiStrategiesBoolAndCategoryTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_api_strategies_includes_category(self):
+        resp = self.client.get("/api/strategies/")
+        data = json.loads(resp.content)
+        for strategy in data:
+            for param in strategy["params"]:
+                assert "category" in param, (
+                    f"Missing category for {strategy['name']}.{param['name']}"
+                )
+
+    def test_api_strategies_bool_type(self):
+        resp = self.client.get("/api/strategies/")
+        data = json.loads(resp.content)
+        names = [s["name"] for s in data]
+        if "coban_reborn" in names:
+            cr = next(s for s in data if s["name"] == "coban_reborn")
+            bool_params = [p for p in cr["params"] if p["type"] == "bool"]
+            bool_names = [p["name"] for p in bool_params]
+            assert "macd_reversal_exit" in bool_names
+            assert "double_confirm_enabled" in bool_names

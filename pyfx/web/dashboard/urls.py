@@ -7,6 +7,7 @@ app_name = "dashboard"
 urlpatterns = [
     path("", views.overview, name="overview"),
     path("backtests/", views.backtest_list, name="backtest_list"),
+    path("backtests/new/", views.backtest_new, name="backtest_new"),
     path("backtests/start/", views.backtest_start, name="backtest_start"),
     path("run/<int:pk>/", views.backtest_detail, name="backtest_detail"),
     path("run/<int:pk>/delete/", views.backtest_delete, name="backtest_delete"),

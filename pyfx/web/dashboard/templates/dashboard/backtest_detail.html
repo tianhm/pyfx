@@ -104,12 +104,18 @@
     </div>
 </div>
 
-{% if strategy_params_json != '{}' %}
-<div class="collapse collapse-arrow bg-base-100 shadow mb-6">
-    <input type="checkbox" />
-    <div class="collapse-title font-medium">Strategy Parameters</div>
-    <div class="collapse-content">
-        <pre class="text-sm">{{ strategy_params_json }}</pre>
+{% if run.strategy_params %}
+<div class="card bg-base-100 shadow mb-6">
+    <div class="card-body p-4">
+        <h2 class="card-title text-sm mb-3">Strategy Parameters</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-6 gap-y-1">
+            {% for key, value in run.strategy_params.items %}
+            <div class="flex justify-between gap-2 py-1 border-b border-base-300/30">
+                <span class="font-mono text-xs opacity-60">{{ key }}</span>
+                <span class="font-mono text-xs font-medium">{{ value }}</span>
+            </div>
+            {% endfor %}
+        </div>
     </div>
 </div>
 {% endif %}
@@ -203,8 +209,8 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch('{% url "dashboard:api_equity_curve" run.pk %}')
             .then(r => r.json())
             .then(data => {
-                if (data.length === 0) {
-                    equityEl.innerHTML = '<p class="text-center opacity-50 py-12">No equity data</p>';
+                if (data.length <= 1) {
+                    equityEl.innerHTML = '<p class="text-center opacity-50 py-12">No equity movement &mdash; strategy may not have traded</p>';
                     return;
                 }
                 const chart = LightweightCharts.createChart(equityEl, {
@@ -251,15 +257,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 vertLines: { color: 'rgba(255,255,255,0.05)' },
                 horzLines: { color: 'rgba(255,255,255,0.05)' },
             },
+            timeScale: { timeVisible: true },
             rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
         });
         const series = chart.addHistogramSeries({
             color: '#36d399',
         });
-        const chartData = cumulativePnl.map((val, i) => ({
-            time: i + 1,
-            value: val,
-            color: val >= 0 ? '#36d399' : '#f87272',
+        const chartData = cumulativePnl.map(d => ({
+            time: d.time,
+            value: d.value,
+            color: d.value >= 0 ? '#36d399' : '#f87272',
         }));
         series.setData(chartData);
         chart.timeScale().fitContent();

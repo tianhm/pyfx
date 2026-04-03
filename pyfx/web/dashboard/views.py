@@ -69,18 +69,20 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
     run = get_object_or_404(BacktestRun, pk=pk)
     trades = run.trade_set.all()
 
-    cumulative_pnl: list[float] = []
+    cumulative_pnl: list[dict[str, object]] = []
     running = 0.0
     for t in trades:
         running += t.realized_pnl
-        cumulative_pnl.append(round(running, 2))
+        cumulative_pnl.append({
+            "time": int(t.closed_at.timestamp()),
+            "value": round(running, 2),
+        })
 
     return render(request, "dashboard/backtest_detail.html", {
         "active_nav": "backtests",
         "run": run,
         "trades": trades,
         "cumulative_pnl_json": json.dumps(cumulative_pnl),
-        "strategy_params_json": json.dumps(run.strategy_params, indent=2),
     })
 
 
@@ -90,6 +92,12 @@ def backtest_delete(request: HttpRequest, pk: int) -> HttpResponse:
         run.delete()
         return redirect("dashboard:backtest_list")
     return redirect("dashboard:backtest_detail", pk=pk)
+
+
+def backtest_new(request: HttpRequest) -> HttpResponse:
+    return render(request, "dashboard/backtest_new.html", {
+        "active_nav": "backtests",
+    })
 
 
 def backtest_start(request: HttpRequest) -> HttpResponse:
@@ -113,13 +121,16 @@ def backtest_start(request: HttpRequest) -> HttpResponse:
     for key, value in request.POST.items():
         if key.startswith("param_"):
             param_name = key[6:]
-            try:
-                strategy_params[param_name] = int(value)
-            except ValueError:
+            if value.lower() in ("true", "false"):
+                strategy_params[param_name] = value.lower() == "true"
+            else:
                 try:
-                    strategy_params[param_name] = float(value)
+                    strategy_params[param_name] = int(value)
                 except ValueError:
-                    strategy_params[param_name] = value
+                    try:
+                        strategy_params[param_name] = float(value)
+                    except ValueError:
+                        strategy_params[param_name] = value
 
     start_dt = datetime.fromisoformat(start_str)
     end_dt = datetime.fromisoformat(end_str)
@@ -180,7 +191,10 @@ def api_strategies(request: HttpRequest) -> JsonResponse:
                         continue
                     field_type = "string"
                     ft = field_info.type
-                    if ft is int:
+                    # Check bool before int (bool is subclass of int)
+                    if ft is bool:
+                        field_type = "bool"
+                    elif ft is int:
                         field_type = "int"
                     elif ft is float:
                         field_type = "float"
@@ -194,6 +208,7 @@ def api_strategies(request: HttpRequest) -> JsonResponse:
                         "name": field_info.name,
                         "type": field_type,
                         "default": default,
+                        "category": _categorize_param(field_info.name),
                     })
         except Exception:  # noqa: BLE001
             pass
@@ -208,6 +223,20 @@ def _to_json_safe(value: object) -> object:
     if isinstance(value, Decimal):
         return float(value)
     return value
+
+
+def _categorize_param(name: str) -> str:
+    """Categorise a strategy parameter by name pattern."""
+    if name in ("entry_mode", "rsi_level_threshold") or name.endswith("_period"):
+        return "indicators"
+    if name in ("exit_mode",) or name.startswith((
+        "take_profit", "stop_loss", "trailing", "atr_",
+        "spread", "macd_reversal",
+    )):
+        return "exits"
+    if name.startswith(("session_", "max_signal_")) or "confirm" in name:
+        return "timing"
+    return "advanced"
 
 
 def _find_strategy_config(strategy_cls: type) -> type | None:
