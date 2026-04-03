@@ -1,0 +1,230 @@
+{% extends "dashboard/base.html" %}
+{% block title %}pyfx - {{ run.strategy }} {{ run.instrument }}{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<div class="flex justify-between items-start mb-6">
+    <div>
+        <div class="flex items-center gap-3 mb-2">
+            <a href="{% url 'dashboard:backtest_list' %}" class="btn btn-ghost btn-sm">&larr; Back</a>
+            <h1 class="text-2xl font-bold">{{ run.strategy }}</h1>
+            <span class="badge badge-outline">{{ run.instrument }}</span>
+        </div>
+        <p class="text-sm opacity-60">
+            {{ run.start|date:"Y-m-d" }} &rarr; {{ run.end|date:"Y-m-d" }}
+            &middot; ran {{ run.created_at|date:"Y-m-d H:i" }}
+            &middot; {{ run.duration_seconds|floatformat:1 }}s
+        </p>
+    </div>
+    <form method="post" action="{% url 'dashboard:backtest_delete' run.pk %}"
+          onsubmit="return confirm('Delete this backtest run?')">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-error btn-sm btn-outline">Delete</button>
+    </form>
+</div>
+
+<!-- Stats Cards -->
+<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Total P&L</div>
+        <div class="stat-value text-lg {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
+            ${{ run.total_pnl|floatformat:2 }}
+        </div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Return</div>
+        <div class="stat-value text-lg {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
+            {{ run.total_return_pct|floatformat:2 }}%
+        </div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Trades</div>
+        <div class="stat-value text-lg">{{ run.num_trades }}</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Win Rate</div>
+        <div class="stat-value text-lg">{{ run.win_rate|floatformat:1 }}%</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Max Drawdown</div>
+        <div class="stat-value text-lg text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Profit Factor</div>
+        <div class="stat-value text-lg">
+            {% if run.profit_factor %}{{ run.profit_factor|floatformat:2 }}{% else %}-{% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Second Row Stats -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Avg Trade</div>
+        <div class="stat-value text-sm">${{ run.avg_trade_pnl|floatformat:2 }}</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Avg Win</div>
+        <div class="stat-value text-sm text-success">${{ run.avg_win|floatformat:2 }}</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Avg Loss</div>
+        <div class="stat-value text-sm text-error">${{ run.avg_loss|floatformat:2 }}</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-4">
+        <div class="stat-title text-xs">Balance / Leverage</div>
+        <div class="stat-value text-sm">${{ run.balance|floatformat:0 }} / {{ run.leverage|floatformat:0 }}x</div>
+    </div>
+</div>
+
+{% if strategy_params_json != '{}' %}
+<div class="collapse collapse-arrow bg-base-100 shadow mb-6">
+    <input type="checkbox" />
+    <div class="collapse-title font-medium">Strategy Parameters</div>
+    <div class="collapse-content">
+        <pre class="text-sm">{{ strategy_params_json }}</pre>
+    </div>
+</div>
+{% endif %}
+
+<!-- Equity Curve Chart -->
+<div class="card bg-base-100 shadow mb-6">
+    <div class="card-body p-4">
+        <h2 class="card-title text-sm">Equity Curve</h2>
+        <div id="equity-chart" style="height: 300px;"></div>
+    </div>
+</div>
+
+<!-- Cumulative PnL Chart -->
+{% if trades %}
+<div class="card bg-base-100 shadow mb-6">
+    <div class="card-body p-4">
+        <h2 class="card-title text-sm">Cumulative P&L by Trade</h2>
+        <div id="pnl-chart" style="height: 250px;"></div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Trade Table -->
+{% if trades %}
+<div class="card bg-base-100 shadow mb-6">
+    <div class="card-body p-4">
+        <h2 class="card-title text-sm mb-3">Trades ({{ trades|length }})</h2>
+        <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+            <table class="table table-xs table-pin-rows">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Side</th>
+                        <th class="text-right">Open Price</th>
+                        <th class="text-right">Close Price</th>
+                        <th class="text-right">P&L</th>
+                        <th>Opened</th>
+                        <th>Closed</th>
+                        <th class="text-right">Duration</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in trades %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>
+                            <span class="badge badge-sm {% if t.side == 'BUY' %}badge-success{% else %}badge-error{% endif %}">
+                                {{ t.side }}
+                            </span>
+                        </td>
+                        <td class="text-right font-mono">{{ t.open_price|floatformat:5 }}</td>
+                        <td class="text-right font-mono">{{ t.close_price|floatformat:5 }}</td>
+                        <td class="text-right font-mono {% if t.realized_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
+                            ${{ t.realized_pnl|floatformat:2 }}
+                        </td>
+                        <td class="text-sm whitespace-nowrap">{{ t.opened_at|date:"m/d H:i" }}</td>
+                        <td class="text-sm whitespace-nowrap">{{ t.closed_at|date:"m/d H:i" }}</td>
+                        <td class="text-right text-sm">{{ t.duration_seconds|floatformat:0 }}s</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Equity Curve
+    const equityEl = document.getElementById('equity-chart');
+    if (equityEl) {
+        fetch('{% url "dashboard:api_equity_curve" run.pk %}')
+            .then(r => r.json())
+            .then(data => {
+                if (data.length === 0) {
+                    equityEl.innerHTML = '<p class="text-center opacity-50 py-12">No equity data</p>';
+                    return;
+                }
+                const chart = LightweightCharts.createChart(equityEl, {
+                    layout: {
+                        background: { type: 'solid', color: 'transparent' },
+                        textColor: '#a6adbb',
+                    },
+                    grid: {
+                        vertLines: { color: 'rgba(255,255,255,0.05)' },
+                        horzLines: { color: 'rgba(255,255,255,0.05)' },
+                    },
+                    timeScale: { timeVisible: true },
+                    rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+                });
+                const series = chart.addAreaSeries({
+                    lineColor: '#36d399',
+                    topColor: 'rgba(54, 211, 153, 0.3)',
+                    bottomColor: 'rgba(54, 211, 153, 0.0)',
+                    lineWidth: 2,
+                });
+                const chartData = data.map(d => ({
+                    time: Math.floor(new Date(d.time).getTime() / 1000),
+                    value: d.value,
+                }));
+                series.setData(chartData);
+                chart.timeScale().fitContent();
+
+                new ResizeObserver(() => {
+                    chart.applyOptions({ width: equityEl.clientWidth });
+                }).observe(equityEl);
+            });
+    }
+
+    // Cumulative PnL
+    const pnlEl = document.getElementById('pnl-chart');
+    const cumulativePnl = {{ cumulative_pnl_json|safe }};
+    if (pnlEl && cumulativePnl.length > 0) {
+        const chart = LightweightCharts.createChart(pnlEl, {
+            layout: {
+                background: { type: 'solid', color: 'transparent' },
+                textColor: '#a6adbb',
+            },
+            grid: {
+                vertLines: { color: 'rgba(255,255,255,0.05)' },
+                horzLines: { color: 'rgba(255,255,255,0.05)' },
+            },
+            rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+        });
+        const series = chart.addHistogramSeries({
+            color: '#36d399',
+        });
+        const chartData = cumulativePnl.map((val, i) => ({
+            time: i + 1,
+            value: val,
+            color: val >= 0 ? '#36d399' : '#f87272',
+        }));
+        series.setData(chartData);
+        chart.timeScale().fitContent();
+
+        new ResizeObserver(() => {
+            chart.applyOptions({ width: pnlEl.clientWidth });
+        }).observe(pnlEl);
+    }
+});
+</script>
+{% endblock %}

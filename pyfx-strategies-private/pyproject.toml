@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyfx-strategies-private"
+version = "0.1.0"
+description = "Private trading strategies for pyfx"
+requires-python = ">=3.12"
+dependencies = [
+    "pyfx",
+    "pandas-ta>=0.3.14b1",
+]
+
+# Register strategies so pyfx discovers them automatically.
+# Key = name used in CLI (e.g. pyfx backtest -s rsi_trend)
+# Value = module:ClassName
+[project.entry-points."pyfx.strategies"]
+rsi_trend = "strategies.rsi_trend:RSITrendStrategy"
+ema_macd = "strategies.ema_macd:EMAMACDStrategy"
+
+[tool.hatch.build.targets.wheel]
+packages = ["strategies"]
