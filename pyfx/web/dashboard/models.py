@@ -119,7 +119,7 @@ class BacktestRun(models.Model):
     class Meta:
         ordering = ["-created_at"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.strategy} | {self.instrument} | {self.total_return_pct:+.1f}%"
 
 
@@ -141,7 +141,7 @@ class Trade(models.Model):
     class Meta:
         ordering = ["opened_at"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.side} {self.instrument} {self.realized_pnl:+.2f}"
 
 

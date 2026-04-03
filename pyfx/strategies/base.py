@@ -18,7 +18,7 @@ class PyfxStrategyConfig(StrategyConfig, frozen=True):
     trade_size: Decimal = Decimal("100000")
 
 
-class PyfxStrategy(Strategy):
+class PyfxStrategy(Strategy):  # type: ignore[misc]
     """Base strategy that all pyfx strategies should extend.
 
     Provides convenience methods for common trading operations.
@@ -54,13 +54,15 @@ class PyfxStrategy(Strategy):
 
     def flat(self) -> bool:
         """Check if we have no open position."""
-        return self.portfolio.is_flat(self.config.instrument_id)
+        return bool(self.portfolio.is_flat(self.config.instrument_id))
 
     def is_long(self) -> bool:
-        return self.portfolio.is_net_long(self.config.instrument_id)
+        """Check if we have a net long position."""
+        return bool(self.portfolio.is_net_long(self.config.instrument_id))
 
     def is_short(self) -> bool:
-        return self.portfolio.is_net_short(self.config.instrument_id)
+        """Check if we have a net short position."""
+        return bool(self.portfolio.is_net_short(self.config.instrument_id))
 
     def close_all(self) -> None:
         """Close all positions for our instrument."""

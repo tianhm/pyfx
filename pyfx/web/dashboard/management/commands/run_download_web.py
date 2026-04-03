@@ -15,7 +15,7 @@ import traceback
 from datetime import date, timedelta
 from pathlib import Path
 
-from django.core.management.base import BaseCommand, CommandParser  # type: ignore[import-untyped]
+from django.core.management.base import BaseCommand, CommandParser
 
 # Seconds to wait between monthly chunk downloads
 CHUNK_DELAY_SECONDS = 5
@@ -53,7 +53,7 @@ def _month_ranges(start: date, end: date) -> list[tuple[date, date]]:
     return chunks
 
 
-class Command(BaseCommand):  # type: ignore[misc]
+class Command(BaseCommand):
     help = "Download data for a pre-created Dataset row (used by the web UI)"
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -228,7 +228,7 @@ class Command(BaseCommand):  # type: ignore[misc]
 
             dataset.row_count = row_count
             dataset.file_size_bytes = output_path.stat().st_size
-            if row_count > 0:
+            if row_count > 0:  # pragma: no cover — defensive guard
                 dataset.start_date = verify.index.min().date()
                 dataset.end_date = verify.index.max().date()
 

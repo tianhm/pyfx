@@ -1,15 +1,18 @@
 """Django management command to run a backtest and save results."""
 
+from __future__ import annotations
+
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandParser
 
 
 class Command(BaseCommand):
     help = "Run a backtest and save results to the database"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--strategy", "-s", required=True)
         parser.add_argument("--instrument", "-i", default="EUR/USD")
         parser.add_argument("--start", required=True)
@@ -23,7 +26,7 @@ class Command(BaseCommand):
         parser.add_argument("--log-level", default="ERROR")
         parser.add_argument("--param", "-p", action="append", default=[])
 
-    def handle(self, **options):
+    def handle(self, **options: object) -> None:
         from datetime import datetime
 
         import pandas as pd
@@ -33,8 +36,8 @@ class Command(BaseCommand):
         from pyfx.web.dashboard.models import BacktestRun, EquitySnapshot, Trade
 
         # Parse params
-        strategy_params = {}
-        for p in options["param"]:
+        strategy_params: dict[str, int | float | str] = {}
+        for p in cast("list[str]", options["param"]):
             key, _, value = p.partition("=")
             try:
                 strategy_params[key] = int(value)
@@ -44,32 +47,39 @@ class Command(BaseCommand):
                 except ValueError:
                     strategy_params[key] = value
 
-        start = datetime.fromisoformat(options["start"])
-        end = datetime.fromisoformat(options["end"])
+        from datetime import UTC
+
+        start = datetime.fromisoformat(cast("str", options["start"]))
+        end = datetime.fromisoformat(cast("str", options["end"]))
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=UTC)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=UTC)
 
         config = BacktestConfig(
-            strategy=options["strategy"],
-            instrument=options["instrument"],
+            strategy=cast("str", options["strategy"]),
+            instrument=cast("str", options["instrument"]),
             start=start,
             end=end,
-            bar_type=options["bar_type"],
-            extra_bar_types=options["extra_bar_type"],
-            trade_size=Decimal(options["trade_size"]),
-            balance=options["balance"],
-            leverage=options["leverage"],
+            bar_type=cast("str", options["bar_type"]),
+            extra_bar_types=cast("list[str]", options["extra_bar_type"]),
+            trade_size=Decimal(cast("str", options["trade_size"])),
+            balance=cast("float", options["balance"]),
+            leverage=cast("float", options["leverage"]),
             strategy_params=strategy_params,
         )
 
         # Load data
-        data_file = options["data_file"]
+        data_file = Path(cast("str | Path", options["data_file"]))
         if data_file.suffix == ".parquet":
             bars_df = pd.read_parquet(data_file)
         else:
             bars_df = pd.read_csv(data_file, index_col=0, parse_dates=True)
 
-        if bars_df.index.tz is None:
-            bars_df.index = bars_df.index.tz_localize("UTC")
-        bars_df = bars_df.loc[start:end]
+        idx = cast("pd.DatetimeIndex", bars_df.index)
+        if idx.tz is None:
+            bars_df.index = idx.tz_localize("UTC")
+        bars_df = bars_df.loc[start:end]  # type: ignore[misc]
 
         if bars_df.empty:
             self.stderr.write("No data in the specified date range")
@@ -79,7 +89,7 @@ class Command(BaseCommand):
             f"Running: {config.strategy} on {config.instrument} ({len(bars_df)} bars)"
         )
 
-        result = run_backtest(config, bars_df, log_level=options["log_level"])
+        result = run_backtest(config, bars_df, log_level=cast("str", options["log_level"]))
 
         # Save to DB
         run = BacktestRun.objects.create(

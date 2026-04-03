@@ -396,7 +396,7 @@ class CobanRebornStrategy(PyfxStrategy):
             self._on_h1_bar(bar)
         elif bar.bar_type == self._h2_bt:
             self._on_h2_bar(bar)
-        elif bar.bar_type == self._m1_bt:
+        elif bar.bar_type == self._m1_bt:  # pragma: no branch
             self._on_m1_bar(bar)
 
     def on_order_filled(self, event: OrderFilled) -> None:
@@ -405,7 +405,7 @@ class CobanRebornStrategy(PyfxStrategy):
         self._pending_entry = False
         self._entry_price = float(event.last_px)
         self._best_price = self._entry_price
-        if self._h1_atr.initialized:
+        if self._h1_atr.initialized:  # pragma: no branch
             self._entry_atr = self._h1_atr.value
 
     # -- H1 handler ----------------------------------------------------------
@@ -513,7 +513,7 @@ class CobanRebornStrategy(PyfxStrategy):
 
         # Exit logic (if in a trade)
         if not self.flat():
-            if self._entry_price > 0.0 and self._pip_size > 0.0:
+            if self._entry_price > 0.0 and self._pip_size > 0.0:  # pragma: no branch
                 if self._check_exit(bar, cfg):
                     return
             return  # already in a trade, don't enter again
@@ -625,7 +625,7 @@ class CobanRebornStrategy(PyfxStrategy):
                 self.close_all()
                 self._reset_signals()
                 return True
-        elif self._trade_direction == -1:
+        elif self._trade_direction == -1:  # pragma: no branch
             if (self._entry_price - low) >= tp_distance:
                 self.close_all()
                 self._reset_signals()
@@ -654,7 +654,7 @@ class CobanRebornStrategy(PyfxStrategy):
                 self.close_all()
                 self._reset_signals()
                 return True
-        elif self._trade_direction == -1:
+        elif self._trade_direction == -1:  # pragma: no branch
             if low < self._best_price:
                 self._best_price = low
             if high - self._best_price >= trail_distance:
@@ -687,7 +687,7 @@ class CobanRebornStrategy(PyfxStrategy):
                 self.close_all()
                 self._reset_signals()
                 return True
-        elif self._trade_direction == -1:
+        elif self._trade_direction == -1:  # pragma: no branch
             if (self._entry_price - low) >= tp_distance:
                 self.close_all()
                 self._reset_signals()

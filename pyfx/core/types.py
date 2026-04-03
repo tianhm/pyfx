@@ -25,7 +25,7 @@ class BacktestConfig(BaseModel):
     balance: float = 100_000.0
     leverage: float = 50.0
     venue: str = "SIM"
-    strategy_params: dict = Field(default_factory=dict)
+    strategy_params: dict[str, int | float | str] = Field(default_factory=dict)
 
 
 class TradeRecord(BaseModel):

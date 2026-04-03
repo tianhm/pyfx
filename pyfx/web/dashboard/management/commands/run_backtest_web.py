@@ -6,10 +6,10 @@ import traceback
 from decimal import Decimal
 from pathlib import Path
 
-from django.core.management.base import BaseCommand, CommandParser  # type: ignore[import-untyped]
+from django.core.management.base import BaseCommand, CommandParser
 
 
-class Command(BaseCommand):  # type: ignore[misc]
+class Command(BaseCommand):
     help = "Run a backtest for a pre-created BacktestRun row (used by the web UI)"
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -17,7 +17,9 @@ class Command(BaseCommand):  # type: ignore[misc]
         parser.add_argument("--log-level", default="ERROR")
 
     def handle(self, **options: object) -> None:  # noqa: C901
-        import pandas as pd  # type: ignore[import-untyped]
+        from typing import cast
+
+        import pandas as pd
 
         from pyfx.backtest.runner import run_backtest
         from pyfx.core.types import BacktestConfig
@@ -66,8 +68,9 @@ class Command(BaseCommand):  # type: ignore[misc]
             else:
                 bars_df = pd.read_csv(data_file, index_col=0, parse_dates=True)
 
-            if bars_df.index.tz is None:
-                bars_df.index = bars_df.index.tz_localize("UTC")
+            idx = cast("pd.DatetimeIndex", bars_df.index)
+            if idx.tz is None:
+                bars_df.index = idx.tz_localize("UTC")
             bars_df = bars_df.loc[config.start : config.end]  # type: ignore[misc]
 
             if bars_df.empty:

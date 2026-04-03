@@ -78,9 +78,6 @@ def read_dukascopy_csv(path: Path) -> pd.DataFrame:
     # Keep only OHLCV columns
     df = df[["open", "high", "low", "close", "volume"]]
 
-    # Drop any rows where all OHLC values are identical and zero (flat/no-trade bars)
-    # but keep flat bars where price is non-zero (valid market data)
-
     return df
 
 
