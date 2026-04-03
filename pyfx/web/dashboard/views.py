@@ -11,7 +11,7 @@ from django.db.models import Avg, Count, Max, Min  # type: ignore[import-untyped
 from django.http import HttpRequest, HttpResponse, JsonResponse  # type: ignore[import-untyped]
 from django.shortcuts import get_object_or_404, redirect, render  # type: ignore[import-untyped]
 
-from .models import BacktestRun, EquitySnapshot, Trade
+from .models import BacktestRun, Dataset, EquitySnapshot, Trade
 
 
 def overview(request: HttpRequest) -> HttpResponse:
@@ -329,5 +329,170 @@ def api_running_backtests(request: HttpRequest) -> JsonResponse:
             "total_bars": r.total_bars,
         }
         for r in running
+    ]
+    return JsonResponse(data, safe=False)
+
+
+# ── Dataset views ──
+
+
+def dataset_list(request: HttpRequest) -> HttpResponse:
+    datasets = Dataset.objects.all()
+    downloading_count = datasets.filter(
+        status__in=[Dataset.STATUS_DOWNLOADING, Dataset.STATUS_INGESTING]
+    ).count()
+    return render(request, "dashboard/dataset_list.html", {
+        "active_nav": "data",
+        "datasets": datasets,
+        "downloading_count": downloading_count,
+    })
+
+
+def dataset_new(request: HttpRequest) -> HttpResponse:
+    from pyfx.data.dukascopy import DUKASCOPY_INSTRUMENTS
+
+    instruments = sorted(DUKASCOPY_INSTRUMENTS.keys())
+    return render(request, "dashboard/dataset_new.html", {
+        "active_nav": "data",
+        "instruments": instruments,
+    })
+
+
+def dataset_start(request: HttpRequest) -> HttpResponse:
+    """Start a data download via POST."""
+    if request.method != "POST":
+        return redirect("dashboard:dataset_list")
+
+    from pyfx.core.config import settings
+    from pyfx.data.dukascopy import canonical_parquet_name
+
+    instrument = request.POST.get("instrument", "EUR/USD").strip()
+    start_str = request.POST.get("start", "").strip()
+    end_str = request.POST.get("end", "").strip()
+    timeframe = request.POST.get("timeframe", "M1").strip()
+
+    start_date = datetime.strptime(start_str, "%Y-%m-%d").date()
+    end_date = datetime.strptime(end_str, "%Y-%m-%d").date()
+
+    filename = canonical_parquet_name(instrument, start_date, end_date, timeframe)
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    file_path = str((settings.data_dir / filename).resolve())
+
+    dataset = Dataset.objects.create(
+        instrument=instrument,
+        timeframe=timeframe,
+        start_date=start_date,
+        end_date=end_date,
+        file_path=file_path,
+        source=Dataset.SOURCE_DUKASCOPY,
+        status=Dataset.STATUS_DOWNLOADING,
+    )
+
+    cmd = [
+        sys.executable, "-m", "django", "run_download_web",
+        "--dataset-id", str(dataset.pk),
+    ]
+    subprocess.Popen(  # noqa: S603
+        cmd,
+        env={
+            **__import__("os").environ,
+            "DJANGO_SETTINGS_MODULE": "pyfx.web.pyfx_web.settings",
+        },
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    return redirect("dashboard:dataset_list")
+
+
+def dataset_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    dataset = get_object_or_404(Dataset, pk=pk)
+    if request.method == "POST":
+        Path(dataset.file_path).unlink(missing_ok=True)
+        dataset.delete()
+        return JsonResponse({"ok": True})
+    return JsonResponse({"error": "POST required"}, status=405)
+
+
+def dataset_redownload(request: HttpRequest, pk: int) -> HttpResponse:
+    dataset = get_object_or_404(Dataset, pk=pk)
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    if dataset.status in (Dataset.STATUS_DOWNLOADING, Dataset.STATUS_INGESTING):
+        return JsonResponse({"error": "Download already in progress"}, status=409)
+
+    # Remove old file
+    Path(dataset.file_path).unlink(missing_ok=True)
+
+    # Reset state
+    dataset.status = Dataset.STATUS_DOWNLOADING
+    dataset.progress_pct = 0
+    dataset.progress_message = ""
+    dataset.error_message = ""
+    dataset.save()
+
+    cmd = [
+        sys.executable, "-m", "django", "run_download_web",
+        "--dataset-id", str(dataset.pk),
+    ]
+    subprocess.Popen(  # noqa: S603
+        cmd,
+        env={
+            **__import__("os").environ,
+            "DJANGO_SETTINGS_MODULE": "pyfx.web.pyfx_web.settings",
+        },
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    return JsonResponse({"ok": True})
+
+
+def api_datasets(request: HttpRequest) -> JsonResponse:
+    """Return ready datasets for the backtest form dropdown."""
+    datasets = Dataset.objects.filter(status=Dataset.STATUS_READY)
+    data = [
+        {
+            "id": ds.pk,
+            "instrument": ds.instrument,
+            "timeframe": ds.timeframe,
+            "start_date": ds.start_date.isoformat(),
+            "end_date": ds.end_date.isoformat(),
+            "file_path": ds.file_path,
+            "row_count": ds.row_count,
+            "display_size": ds.display_size,
+        }
+        for ds in datasets
+    ]
+    return JsonResponse(data, safe=False)
+
+
+def api_dataset_status(request: HttpRequest, pk: int) -> JsonResponse:
+    dataset = get_object_or_404(Dataset, pk=pk)
+    return JsonResponse({
+        "status": dataset.status,
+        "progress_pct": dataset.progress_pct,
+        "progress_message": dataset.progress_message,
+        "error_message": dataset.error_message,
+    })
+
+
+def api_running_downloads(request: HttpRequest) -> JsonResponse:
+    running = Dataset.objects.filter(
+        status__in=[Dataset.STATUS_DOWNLOADING, Dataset.STATUS_INGESTING]
+    )
+    data = [
+        {
+            "id": ds.pk,
+            "instrument": ds.instrument,
+            "timeframe": ds.timeframe,
+            "start_date": ds.start_date.isoformat(),
+            "end_date": ds.end_date.isoformat(),
+            "progress_pct": ds.progress_pct,
+            "progress_message": ds.progress_message,
+            "status": ds.status,
+        }
+        for ds in running
     ]
     return JsonResponse(data, safe=False)

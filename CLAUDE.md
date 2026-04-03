@@ -20,7 +20,7 @@ Results -> Django DB (pyfx/web/dashboard/) -> Web views + JSON APIs
 ```
 pyfx/
   __init__.py
-  cli.py                     # Click CLI entry point (backtest, strategies, generate-sample-data, web)
+  cli.py                     # Click CLI entry point (backtest, strategies, data, generate-sample-data, web)
   core/
     config.py                # Pydantic settings (PYFX_ prefix, .env support)
     types.py                 # Pydantic models: BacktestConfig, BacktestResult, TradeRecord, EquityPoint
@@ -31,7 +31,8 @@ pyfx/
     coban_reborn.py          # Multi-timeframe strategy: "full" confluence or "trend_follow" mode
     coban_experimental.py    # Experimental testbed for strategy variations (7 entry × 3 exit modes)
   data/
-    dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet
+    dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet + instrument mappings
+    scanner.py               # Scan data dir, register Parquet files as Dataset records
   backtest/
     runner.py                # NautilusTrader BacktestEngine integration
   adapters/                  # (future) live broker adapters
@@ -41,6 +42,7 @@ pyfx/
       management/commands/
         run_backtest.py      # CLI management command to run + save backtest
         run_backtest_web.py  # Subprocess command for web-triggered backtests
+        run_download_web.py  # Subprocess command for web-triggered data downloads
 research/
   README.md                  # Research journal format and conventions
   coban_reborn/journal.md    # CobanReborn strategy research journal
@@ -65,7 +67,9 @@ uv run pyfx backtest -s coban_reborn ... --extra-bar-type 5-MINUTE-LAST-EXTERNAL
 uv run pyfx strategies                                                              # List available strategies
 uv run pyfx generate-sample-data                                                    # Create synthetic test data
 uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
-uv run pyfx web                                                                     # Start Django dashboard
+uv run pyfx data list                                                               # List registered datasets
+uv run pyfx data scan                                                               # Scan data dir and register Parquet files
+uv run pyfx web                                                                     # Start Django dashboard (auto-scans data dir)
 ```
 
 ## Configuration
@@ -74,12 +78,12 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PYFX_DATA_DIR` | Local data cache | `~/.pyfx/data` |
-| `PYFX_CATALOG_DIR` | NautilusTrader Parquet catalog | `~/.pyfx/catalog` |
+| `PYFX_DATA_DIR` | Local data cache (project-relative) | `data` |
+| `PYFX_CATALOG_DIR` | NautilusTrader Parquet catalog | `data/catalog` |
 | `PYFX_STRATEGIES_DIR` | Extra directory to scan for strategy modules | None |
 | `PYFX_DEFAULT_BALANCE` | Starting balance (USD) | 100,000 |
 | `PYFX_DEFAULT_LEVERAGE` | Leverage ratio | 50 |
-| `PYFX_DB_PATH` | SQLite database path | `~/.pyfx/db.sqlite3` |
+| `PYFX_DB_PATH` | SQLite database path (project-relative) | `data/db.sqlite3` |
 | `PYFX_SECRET_KEY` | Django secret key | dev default (change in prod) |
 
 ## Quality Gates (mandatory before commit)
@@ -140,7 +144,9 @@ All new code must include tests. No exceptions.
 - **NautilusTrader bar types**: must match format `step-aggregation-price_type-source` (e.g., `1-MINUTE-LAST-EXTERNAL`)
 - **Data files**: must have OHLCV columns (`open`, `high`, `low`, `close`, `volume`) with a DatetimeIndex
 - **Timezone handling**: bar data index must be UTC. `_load_data()` auto-localizes naive timestamps
-- **Django dashboard**: uses SQLite at `~/.pyfx/db.sqlite3`, auto-migrates on `pyfx web` startup. Sidebar layout with DaisyUI drawer. Overview at `/`, backtests at `/backtests/`. Web-triggered backtests run via `run_backtest_web` management command in a subprocess.
+- **Django dashboard**: uses SQLite at `data/db.sqlite3` (project-relative), auto-migrates on `pyfx web` startup. Sidebar layout with DaisyUI drawer. Overview at `/`, data at `/data/`, backtests at `/backtests/`. Web-triggered backtests and downloads run via management commands in subprocesses.
+- **Data management**: `Dataset` model tracks Parquet files with metadata. Download via web UI uses `npx dukascopy-node` in subprocess. `pyfx data scan` auto-detects existing Parquet files. `pyfx web` auto-scans on startup. Data lives in project-local `data/` dir (gitignored).
+- **Project-local storage**: Data and DB default to `./data/` (not `~/.pyfx/`). The `data/` directory is gitignored. Override with `PYFX_DATA_DIR` and `PYFX_DB_PATH` env vars.
 - **Strategy config classes**: extend NautilusTrader's `StrategyConfig` (msgspec.Struct), NOT Pydantic. Use `__struct_fields__` and `msgspec.structs.fields()` for introspection, not `model_fields`.
 - **pytest-django**: required for web tests. Configure via `DJANGO_SETTINGS_MODULE` in `pyproject.toml` `[tool.pytest.ini_options]`.
 - **Strategy discovery**: checks BOTH entry points AND `PYFX_STRATEGIES_DIR` — strategies from either source are available

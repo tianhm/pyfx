@@ -1,0 +1,286 @@
+{% extends "dashboard/base.html" %}
+{% block title %}pyfx - Data{% endblock %}
+
+{% block extra_head %}
+<style>
+    @keyframes shimmer {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+    .progress-bar-fill {
+        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .shimmer-active::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+        animation: shimmer 1.8s infinite;
+    }
+    .running-card {
+        animation: fadeIn 0.3s ease-out;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+    }
+    .pulse-dot {
+        animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <div>
+        <h1 class="text-2xl font-bold">Data</h1>
+        <p class="text-sm text-base-content/50 mt-1">{{ datasets|length }} dataset{{ datasets|length|pluralize }}</p>
+    </div>
+    <a href="{% url 'dashboard:dataset_new' %}" class="btn btn-primary btn-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke-linecap="round" stroke-linejoin="round"/>
+            <polyline points="7 10 12 15 17 10" stroke-linecap="round" stroke-linejoin="round"/>
+            <line x1="12" y1="15" x2="12" y2="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Download Data
+    </a>
+</div>
+
+<!-- Running Downloads (populated by JS) -->
+<div id="running-downloads" class="space-y-3 mb-6"></div>
+
+{% if datasets %}
+<div class="card bg-base-100 shadow">
+    <div class="overflow-x-auto">
+        <table class="table w-full">
+            <thead>
+                <tr class="text-xs uppercase tracking-wider">
+                    <th>Status</th>
+                    <th>Instrument</th>
+                    <th>Timeframe</th>
+                    <th>Date Range</th>
+                    <th class="text-right">Rows</th>
+                    <th class="text-right">Size</th>
+                    <th>Source</th>
+                    <th class="text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ds in datasets %}
+                <tr id="dataset-row-{{ ds.pk }}" class="hover">
+                    <td>
+                        {% if ds.status == 'ready' %}
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4 text-success" stroke-width="2">
+                                <path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        {% elif ds.status == 'error' %}
+                            <div class="tooltip tooltip-right" data-tip="{{ ds.error_message|truncatewords:15 }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4 text-error" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6m0-6l6 6"/>
+                                </svg>
+                            </div>
+                        {% else %}
+                            <span class="loading loading-spinner loading-xs text-info"></span>
+                        {% endif %}
+                    </td>
+                    <td class="font-medium">{{ ds.instrument }}</td>
+                    <td class="text-sm">{{ ds.timeframe }}</td>
+                    <td class="whitespace-nowrap text-sm opacity-70">{{ ds.start_date }} &rarr; {{ ds.end_date }}</td>
+                    <td class="text-right font-mono text-sm">{{ ds.row_count|default:"-" }}</td>
+                    <td class="text-right text-sm opacity-70">{{ ds.display_size }}</td>
+                    <td>
+                        <span class="badge badge-ghost badge-sm">{{ ds.source }}</span>
+                    </td>
+                    <td class="text-right">
+                        <div class="flex gap-1 justify-end">
+                            {% if ds.status == 'error' %}
+                            <button class="btn btn-ghost btn-xs" onclick="redownload({{ ds.pk }})" title="Retry download">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
+                                    <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                                </svg>
+                            </button>
+                            {% endif %}
+                            {% if ds.status != 'downloading' and ds.status != 'ingesting' %}
+                            <button class="btn btn-ghost btn-xs text-error" onclick="confirmDelete({{ ds.pk }}, '{{ ds.instrument }} {{ ds.timeframe }}')" title="Delete">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                </svg>
+                            </button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="hero min-h-[50vh]">
+    <div class="hero-content text-center">
+        <div class="max-w-md">
+            <h2 class="text-xl font-bold mb-4">No datasets yet</h2>
+            <p class="mb-6 opacity-60">Download data from Dukascopy or scan your data directory for existing Parquet files.</p>
+            <div class="flex gap-3 justify-center">
+                <a href="{% url 'dashboard:dataset_new' %}" class="btn btn-primary btn-sm">Download Data</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Delete Confirmation Modal -->
+<dialog id="delete-modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">Delete Dataset</h3>
+        <p class="py-4">Are you sure you want to delete <strong id="delete-dataset-name"></strong>? This will remove the Parquet file from disk.</p>
+        <div class="modal-action">
+            <form method="dialog">
+                <button class="btn btn-ghost">Cancel</button>
+            </form>
+            <button id="delete-confirm-btn" class="btn btn-error" onclick="doDelete()">Delete</button>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('running-downloads');
+    let knownIds = new Set();
+
+    function buildCard(ds) {
+        const card = document.createElement('div');
+        card.className = 'running-card card bg-base-100 border border-primary/20 shadow-lg';
+        card.id = 'dl-card-' + ds.id;
+
+        const pct = ds.progress_pct;
+        card.innerHTML =
+            '<div class="card-body p-4 gap-3">' +
+                '<div class="flex items-center justify-between">' +
+                    '<div class="flex items-center gap-2">' +
+                        '<span class="inline-block w-2 h-2 rounded-full bg-primary pulse-dot"></span>' +
+                        '<span class="font-medium text-sm"></span>' +
+                        '<span class="text-base-content/40">&middot;</span>' +
+                        '<span class="text-sm opacity-70"></span>' +
+                    '</div>' +
+                    '<span class="text-xs text-base-content/40"></span>' +
+                '</div>' +
+                '<div class="flex items-center gap-3">' +
+                    '<div class="flex-1 relative">' +
+                        '<div class="w-full bg-base-300 rounded-full h-2 overflow-hidden">' +
+                            '<div class="progress-bar-fill h-full rounded-full bg-primary relative overflow-hidden" style="width:' + pct + '%">' +
+                                '<div class="shimmer-active absolute inset-0"></div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<span class="text-xs font-mono text-primary w-8 text-right">' + pct + '%</span>' +
+                '</div>' +
+                '<div class="text-xs text-base-content/50 progress-msg"></div>' +
+            '</div>';
+
+        const spans = card.querySelectorAll('.flex.items-center.gap-2 span');
+        spans[1].textContent = ds.instrument;
+        spans[3].textContent = ds.timeframe;
+        const dateSpan = card.querySelector('.flex.items-center.justify-between > span:last-child');
+        dateSpan.textContent = ds.start_date + ' \u2192 ' + ds.end_date;
+        card.querySelector('.progress-msg').textContent = ds.progress_message;
+
+        return card;
+    }
+
+    function updateCard(card, ds) {
+        const fill = card.querySelector('.progress-bar-fill');
+        fill.style.width = ds.progress_pct + '%';
+        card.querySelector('.text-xs.font-mono.text-primary').textContent = ds.progress_pct + '%';
+        card.querySelector('.progress-msg').textContent = ds.progress_message;
+    }
+
+    function pollRunning() {
+        fetch('{% url "dashboard:api_running_downloads" %}')
+            .then(r => r.json())
+            .then(data => {
+                const currentIds = new Set(data.map(ds => ds.id));
+
+                for (const oldId of knownIds) {
+                    if (!currentIds.has(oldId)) {
+                        window.location.reload();
+                        return;
+                    }
+                }
+
+                data.forEach(ds => {
+                    const existing = document.getElementById('dl-card-' + ds.id);
+                    if (existing) {
+                        updateCard(existing, ds);
+                    } else {
+                        container.appendChild(buildCard(ds));
+                    }
+                });
+
+                container.querySelectorAll('[id^="dl-card-"]').forEach(card => {
+                    const cardId = parseInt(card.id.replace('dl-card-', ''));
+                    if (!currentIds.has(cardId)) card.remove();
+                });
+
+                knownIds = currentIds;
+            })
+            .catch(() => {});
+    }
+
+    pollRunning();
+    setInterval(pollRunning, 2000);
+});
+
+let deleteTargetId = null;
+
+function confirmDelete(id, name) {
+    deleteTargetId = id;
+    document.getElementById('delete-dataset-name').textContent = name;
+    document.getElementById('delete-modal').showModal();
+}
+
+function doDelete() {
+    if (!deleteTargetId) return;
+    const id = deleteTargetId;
+    document.getElementById('delete-modal').close();
+
+    fetch('/api/data/' + id + '/delete/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || getCookie('csrftoken'),
+        },
+    })
+    .then(r => r.json())
+    .then(() => {
+        const row = document.getElementById('dataset-row-' + id);
+        if (row) row.remove();
+    });
+}
+
+function redownload(id) {
+    fetch('/api/data/' + id + '/redownload/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || getCookie('csrftoken'),
+        },
+    })
+    .then(() => window.location.reload());
+}
+
+function getCookie(name) {
+    const value = '; ' + document.cookie;
+    const parts = value.split('; ' + name + '=');
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+}
+</script>
+{% endblock %}

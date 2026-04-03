@@ -9,9 +9,45 @@ and OHLCV columns suitable for NautilusTrader bar ingestion.
 
 from __future__ import annotations
 
+import datetime
 from pathlib import Path
 
 import pandas as pd
+
+# Mapping from pyfx instrument name to dukascopy-node instrument ID
+DUKASCOPY_INSTRUMENTS: dict[str, str] = {
+    "EUR/USD": "eurusd",
+    "GBP/USD": "gbpusd",
+    "USD/JPY": "usdjpy",
+    "AUD/USD": "audusd",
+    "USD/CHF": "usdchf",
+    "USD/CAD": "usdcad",
+    "NZD/USD": "nzdusd",
+    "XAU/USD": "xauusd",
+    "OIL/USD": "lightcmdusd",
+}
+
+# Reverse: dukascopy ID -> pyfx instrument
+INSTRUMENT_FROM_DUKASCOPY: dict[str, str] = {v: k for k, v in DUKASCOPY_INSTRUMENTS.items()}
+
+# Filename prefix (no slash) -> pyfx instrument
+FILENAME_TO_INSTRUMENT: dict[str, str] = {
+    k.replace("/", ""): k for k in DUKASCOPY_INSTRUMENTS
+}
+
+
+def canonical_parquet_name(
+    instrument: str,
+    start: datetime.date,
+    end: datetime.date,
+    timeframe: str = "M1",
+) -> str:
+    """Build canonical Parquet filename for a dataset.
+
+    Example: ``EURUSD_2025-01-01_2026-03-31_M1.parquet``
+    """
+    prefix = instrument.replace("/", "")
+    return f"{prefix}_{start.isoformat()}_{end.isoformat()}_{timeframe}.parquet"
 
 
 def read_dukascopy_csv(path: Path) -> pd.DataFrame:

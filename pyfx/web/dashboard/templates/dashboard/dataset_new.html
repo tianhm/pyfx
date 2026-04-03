@@ -1,0 +1,75 @@
+{% extends "dashboard/base.html" %}
+{% block title %}pyfx - Download Data{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+    <a href="{% url 'dashboard:dataset_list' %}" class="btn btn-ghost btn-sm">&larr; Back</a>
+    <h1 class="text-2xl font-bold">Download Data</h1>
+</div>
+
+<form id="download-form" method="post" action="{% url 'dashboard:dataset_start' %}">
+    {% csrf_token %}
+    <div class="max-w-lg">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body p-5 space-y-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider opacity-60">Dukascopy Data</h2>
+
+                <div class="form-control">
+                    <label class="label py-1"><span class="label-text font-medium">Instrument</span></label>
+                    <select name="instrument" class="select select-bordered w-full" required>
+                        {% for inst in instruments %}
+                        <option value="{{ inst }}" {% if inst == "EUR/USD" %}selected{% endif %}>{{ inst }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="form-control">
+                        <label class="label py-1"><span class="label-text font-medium">Start Date</span></label>
+                        <input type="date" name="start" class="input input-bordered w-full" required />
+                    </div>
+                    <div class="form-control">
+                        <label class="label py-1"><span class="label-text font-medium">End Date</span></label>
+                        <input type="date" name="end" class="input input-bordered w-full" required />
+                    </div>
+                </div>
+
+                <div class="form-control">
+                    <label class="label py-1"><span class="label-text font-medium">Timeframe</span></label>
+                    <select name="timeframe" class="select select-bordered w-full">
+                        <option value="M1" selected>M1 (1 Minute)</option>
+                        <option value="M5">M5 (5 Minutes)</option>
+                        <option value="M15">M15 (15 Minutes)</option>
+                        <option value="M30">M30 (30 Minutes)</option>
+                        <option value="H1">H1 (1 Hour)</option>
+                    </select>
+                </div>
+
+                <div class="alert alert-info text-sm py-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span>Requires <code class="font-mono">npx</code> (Node.js) installed. Downloads from Dukascopy may take several minutes for large date ranges.</span>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" id="submit-btn" class="btn btn-primary w-full mt-4">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke-linecap="round" stroke-linejoin="round"/>
+                <polyline points="7 10 12 15 17 10" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="12" y1="15" x2="12" y2="3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Start Download
+        </button>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('download-form').addEventListener('submit', function() {
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Starting\u2026';
+});
+</script>
+{% endblock %}

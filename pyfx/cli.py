@@ -200,8 +200,75 @@ def web(host: str, port: int) -> None:
     # Auto-migrate on first run
     call_command("migrate", "--run-syncdb", verbosity=0)
 
+    # Auto-scan data directory for unregistered Parquet files
+    from pyfx.data.scanner import scan_data_directory
+
+    registered, _ = scan_data_directory(quiet=True)
+    if registered:
+        click.echo(f"Registered {registered} new dataset(s) from data directory.")
+
     click.echo(f"Starting pyfx dashboard at http://{host}:{port}/")
     execute_from_command_line(["pyfx", "runserver", f"{host}:{port}", "--noreload"])
+
+
+@main.group()
+def data() -> None:
+    """Manage OHLCV datasets."""
+
+
+@data.command("list")
+def data_list() -> None:
+    """List available datasets."""
+    import os
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
+
+    import django
+
+    django.setup()
+
+    from pyfx.web.dashboard.models import Dataset
+
+    datasets = Dataset.objects.all()
+    if not datasets:
+        click.echo("No datasets registered.")
+        click.echo("  Run `pyfx data scan` to detect existing Parquet files.")
+        return
+
+    # Header
+    click.echo(
+        f"{'Instrument':12s} {'TF':4s} {'Start':12s} {'End':12s} "
+        f"{'Rows':>10s} {'Size':>8s} {'Source':10s} {'Status':10s}"
+    )
+    click.echo("-" * 82)
+
+    for ds in datasets:
+        click.echo(
+            f"{ds.instrument:12s} {ds.timeframe:4s} {ds.start_date!s:12s} "
+            f"{ds.end_date!s:12s} {ds.row_count:>10,} {ds.display_size:>8s} "
+            f"{ds.source:10s} {ds.status:10s}"
+        )
+
+
+@data.command("scan")
+def data_scan() -> None:
+    """Scan data directory and register untracked Parquet files."""
+    import os
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
+
+    import django
+
+    django.setup()
+
+    from django.core.management import call_command
+
+    call_command("migrate", "--run-syncdb", verbosity=0)
+
+    from pyfx.data.scanner import scan_data_directory
+
+    registered, already_tracked = scan_data_directory()
+    click.echo(f"Registered {registered} new dataset(s), {already_tracked} already tracked.")
 
 
 def _parse_params(params: tuple[str, ...]) -> dict:

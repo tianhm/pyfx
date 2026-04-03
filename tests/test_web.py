@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from django.test import Client, TestCase
 
-from pyfx.web.dashboard.models import BacktestRun, EquitySnapshot, Trade
+from pyfx.web.dashboard.models import BacktestRun, Dataset, EquitySnapshot, Trade
 
 
 def _create_run(
@@ -889,3 +891,483 @@ class ApiStrategiesBoolAndCategoryTests(TestCase):
             bool_names = [p["name"] for p in bool_params]
             assert "macd_reversal_exit" in bool_names
             assert "double_confirm_enabled" in bool_names
+
+
+# ── Dataset helpers ──
+
+
+def _create_dataset(
+    instrument: str = "EUR/USD",
+    timeframe: str = "M1",
+    status: str = Dataset.STATUS_READY,
+    **kwargs,
+) -> Dataset:
+    from datetime import date
+
+    defaults = dict(
+        instrument=instrument,
+        timeframe=timeframe,
+        start_date=date(2025, 1, 1),
+        end_date=date(2025, 12, 31),
+        file_path=f"/tmp/{instrument.replace('/', '')}_{timeframe}.parquet",
+        file_size_bytes=5_000_000,
+        row_count=500_000,
+        source=Dataset.SOURCE_MANUAL,
+        status=status,
+    )
+    defaults.update(kwargs)
+    return Dataset.objects.create(**defaults)
+
+
+# ── Dataset model tests ──
+
+
+class DatasetModelTests(TestCase):
+    def test_str(self):
+        ds = _create_dataset()
+        assert "EUR/USD" in str(ds)
+        assert "M1" in str(ds)
+        assert "2025-01-01" in str(ds)
+
+    def test_display_size_mb(self):
+        ds = _create_dataset(file_size_bytes=5_000_000)
+        assert ds.display_size == "5.0 MB"
+
+    def test_display_size_kb(self):
+        ds = _create_dataset(file_size_bytes=5_000)
+        assert ds.display_size == "5.0 KB"
+
+    def test_display_size_bytes(self):
+        ds = _create_dataset(file_size_bytes=500)
+        assert ds.display_size == "500 B"
+
+    def test_ordering(self):
+        from datetime import date
+
+        _create_dataset(
+            file_path="/tmp/a.parquet",
+            start_date=date(2024, 1, 1),
+            end_date=date(2024, 12, 31),
+        )
+        d2 = _create_dataset(
+            file_path="/tmp/b.parquet",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 12, 31),
+        )
+        datasets = list(Dataset.objects.all())
+        assert datasets[0].pk == d2.pk
+
+    def test_unique_file_path(self):
+        from django.db import IntegrityError
+
+        _create_dataset(file_path="/tmp/unique.parquet")
+        with pytest.raises(IntegrityError):
+            _create_dataset(file_path="/tmp/unique.parquet")
+
+    def test_unique_identity(self):
+        from datetime import date
+
+        from django.db import IntegrityError
+
+        _create_dataset(
+            instrument="GBP/USD",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 12, 31),
+            file_path="/tmp/gbp1.parquet",
+        )
+        with pytest.raises(IntegrityError):
+            _create_dataset(
+                instrument="GBP/USD",
+                start_date=date(2025, 1, 1),
+                end_date=date(2025, 12, 31),
+                file_path="/tmp/gbp2.parquet",
+            )
+
+    def test_status_choices(self):
+        assert Dataset.STATUS_DOWNLOADING == "downloading"
+        assert Dataset.STATUS_INGESTING == "ingesting"
+        assert Dataset.STATUS_READY == "ready"
+        assert Dataset.STATUS_ERROR == "error"
+
+    def test_source_choices(self):
+        assert Dataset.SOURCE_DUKASCOPY == "dukascopy"
+        assert Dataset.SOURCE_MANUAL == "manual"
+        assert Dataset.SOURCE_GENERATED == "generated"
+
+    def test_default_status(self):
+        ds = _create_dataset()
+        fresh = Dataset.objects.get(pk=ds.pk)
+        assert fresh.progress_pct == 0 or fresh.status == Dataset.STATUS_READY
+
+
+# ── Dataset view tests ──
+
+
+class DatasetListViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_list_empty(self):
+        resp = self.client.get("/data/")
+        assert resp.status_code == 200
+        assert b"No datasets yet" in resp.content
+
+    def test_list_with_datasets(self):
+        _create_dataset()
+        resp = self.client.get("/data/")
+        assert resp.status_code == 200
+        assert b"EUR/USD" in resp.content
+
+    def test_list_active_nav(self):
+        resp = self.client.get("/data/")
+        assert resp.context["active_nav"] == "data"
+
+    def test_list_downloading_count(self):
+        _create_dataset(
+            instrument="GBP/USD",
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/dl.parquet",
+        )
+        resp = self.client.get("/data/")
+        assert resp.context["downloading_count"] == 1
+
+    def test_list_contains_download_button(self):
+        resp = self.client.get("/data/")
+        assert b"Download Data" in resp.content
+
+
+class DatasetNewViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_new_page_200(self):
+        resp = self.client.get("/data/new/")
+        assert resp.status_code == 200
+        assert b"Download Data" in resp.content
+
+    def test_new_page_active_nav(self):
+        resp = self.client.get("/data/new/")
+        assert resp.context["active_nav"] == "data"
+
+    def test_new_page_has_instruments(self):
+        resp = self.client.get("/data/new/")
+        assert b"EUR/USD" in resp.content
+        assert b"XAU/USD" in resp.content
+
+
+class DatasetStartViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_start_get_redirects(self):
+        resp = self.client.get("/data/start/")
+        assert resp.status_code == 302
+
+    @patch("pyfx.web.dashboard.views.subprocess.Popen")
+    def test_start_post_creates_dataset(self, mock_popen):
+        resp = self.client.post("/data/start/", {
+            "instrument": "EUR/USD",
+            "start": "2025-01-01",
+            "end": "2025-12-31",
+            "timeframe": "M1",
+        })
+        assert resp.status_code == 302
+        ds = Dataset.objects.latest("created_at")
+        assert ds.instrument == "EUR/USD"
+        assert ds.status == Dataset.STATUS_DOWNLOADING
+        assert ds.source == Dataset.SOURCE_DUKASCOPY
+        mock_popen.assert_called_once()
+
+
+class DatasetDeleteViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    @patch("pyfx.web.dashboard.views.Path.unlink")
+    def test_delete_post(self, mock_unlink):
+        ds = _create_dataset()
+        resp = self.client.post(f"/api/data/{ds.pk}/delete/")
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        assert data["ok"] is True
+        assert not Dataset.objects.filter(pk=ds.pk).exists()
+
+    def test_delete_get_rejected(self):
+        ds = _create_dataset()
+        resp = self.client.get(f"/api/data/{ds.pk}/delete/")
+        assert resp.status_code == 405
+
+    def test_delete_404(self):
+        resp = self.client.post("/api/data/99999/delete/")
+        assert resp.status_code == 404
+
+
+class DatasetRedownloadViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    @patch("pyfx.web.dashboard.views.subprocess.Popen")
+    @patch("pyfx.web.dashboard.views.Path.unlink")
+    def test_redownload(self, mock_unlink, mock_popen):
+        ds = _create_dataset(status=Dataset.STATUS_READY)
+        resp = self.client.post(f"/api/data/{ds.pk}/redownload/")
+        assert resp.status_code == 200
+        ds.refresh_from_db()
+        assert ds.status == Dataset.STATUS_DOWNLOADING
+        mock_popen.assert_called_once()
+
+    @patch("pyfx.web.dashboard.views.subprocess.Popen")
+    def test_redownload_already_downloading(self, mock_popen):
+        ds = _create_dataset(
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/dl2.parquet",
+        )
+        resp = self.client.post(f"/api/data/{ds.pk}/redownload/")
+        assert resp.status_code == 409
+        mock_popen.assert_not_called()
+
+    def test_redownload_get_rejected(self):
+        ds = _create_dataset()
+        resp = self.client.get(f"/api/data/{ds.pk}/redownload/")
+        assert resp.status_code == 405
+
+
+class ApiDatasetsViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_empty(self):
+        resp = self.client.get("/api/data/")
+        data = json.loads(resp.content)
+        assert data == []
+
+    def test_returns_ready_only(self):
+        _create_dataset(status=Dataset.STATUS_READY)
+        _create_dataset(
+            instrument="GBP/USD",
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/dl3.parquet",
+        )
+        resp = self.client.get("/api/data/")
+        data = json.loads(resp.content)
+        assert len(data) == 1
+
+    def test_response_fields(self):
+        _create_dataset()
+        resp = self.client.get("/api/data/")
+        data = json.loads(resp.content)
+        ds = data[0]
+        assert "id" in ds
+        assert ds["instrument"] == "EUR/USD"
+        assert ds["timeframe"] == "M1"
+        assert "file_path" in ds
+        assert "row_count" in ds
+        assert "display_size" in ds
+
+
+class ApiDatasetStatusViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_status(self):
+        ds = _create_dataset(
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/ds_status.parquet",
+        )
+        ds.progress_pct = 50
+        ds.progress_message = "Downloading..."
+        ds.save()
+        resp = self.client.get(f"/api/data/{ds.pk}/status/")
+        data = json.loads(resp.content)
+        assert data["status"] == "downloading"
+        assert data["progress_pct"] == 50
+        assert data["progress_message"] == "Downloading..."
+
+    def test_status_404(self):
+        resp = self.client.get("/api/data/99999/status/")
+        assert resp.status_code == 404
+
+
+class ApiRunningDownloadsViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def test_no_running(self):
+        resp = self.client.get("/api/data/running/")
+        data = json.loads(resp.content)
+        assert data == []
+
+    def test_returns_downloading_only(self):
+        _create_dataset(
+            instrument="GBP/USD",
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/run1.parquet",
+        )
+        _create_dataset(
+            instrument="USD/JPY",
+            status=Dataset.STATUS_INGESTING,
+            file_path="/tmp/run2.parquet",
+        )
+        _create_dataset(status=Dataset.STATUS_READY)
+        resp = self.client.get("/api/data/running/")
+        data = json.loads(resp.content)
+        assert len(data) == 2
+
+    def test_response_fields(self):
+        _create_dataset(
+            instrument="XAU/USD",
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/run3.parquet",
+        )
+        resp = self.client.get("/api/data/running/")
+        data = json.loads(resp.content)
+        ds = data[0]
+        assert "id" in ds
+        assert "instrument" in ds
+        assert "progress_pct" in ds
+        assert "progress_message" in ds
+
+
+class RunDownloadWebCommandTests(TestCase):
+    def test_missing_dataset_id(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        err = StringIO()
+        call_command("run_download_web", dataset_id=99999, stderr=err)
+        assert "not found" in err.getvalue()
+
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.subprocess.run")
+    @patch("pyfx.data.dukascopy.ingest_to_parquet")
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
+    def test_successful_download(
+        self, mock_which, mock_ingest, mock_subprocess_run,
+    ):
+        import pandas as pd
+
+        mock_which.return_value = "/usr/local/bin/npx"
+
+        ds = _create_dataset(
+            instrument="GBP/USD",
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/test_dl.parquet",
+        )
+
+        # Mock ingest_to_parquet to create the output file
+        mock_ingest.return_value = Path("/tmp/test_dl.parquet")
+
+        # Mock the rglob to find CSV
+        mock_csv_path = MagicMock()
+        mock_csv_stat = MagicMock()
+        mock_csv_stat.st_mtime = 1000
+        mock_csv_path.stat.return_value = mock_csv_stat
+
+        # Mock pandas read_parquet for metadata
+        mock_df = MagicMock()
+        mock_df.__len__ = MagicMock(return_value=100_000)
+        mock_df.empty = False
+        mock_df.index.min.return_value = pd.Timestamp("2025-01-01", tz="UTC")
+        mock_df.index.max.return_value = pd.Timestamp("2025-12-31", tz="UTC")
+
+        from pathlib import Path as RealPath
+
+        from django.core.management import call_command
+
+        with (
+            patch.object(
+                RealPath, "rglob", return_value=[mock_csv_path],
+            ),
+            patch.object(RealPath, "mkdir"),
+            patch.object(RealPath, "stat") as mock_stat,
+            patch("pandas.read_parquet", return_value=mock_df),
+        ):
+            mock_stat.return_value.st_size = 5_000_000
+            call_command("run_download_web", dataset_id=ds.pk)
+
+        ds.refresh_from_db()
+        assert ds.status == Dataset.STATUS_READY
+        assert ds.progress_pct == 100
+        assert ds.row_count == 100_000
+
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
+    def test_npx_not_found(self, mock_which):
+        mock_which.return_value = None
+        ds = _create_dataset(
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/no_npx.parquet",
+        )
+
+        from django.core.management import call_command
+
+        call_command("run_download_web", dataset_id=ds.pk)
+
+        ds.refresh_from_db()
+        assert ds.status == Dataset.STATUS_ERROR
+        assert "npx not found" in ds.error_message
+
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.subprocess.run")
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
+    def test_download_failure(self, mock_which, mock_subprocess_run):
+        import subprocess as sp
+
+        mock_which.return_value = "/usr/local/bin/npx"
+        mock_subprocess_run.side_effect = sp.CalledProcessError(1, "npx")
+
+        ds = _create_dataset(
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/fail_dl.parquet",
+        )
+
+        from pathlib import Path as RealPath
+
+        from django.core.management import call_command
+
+        with patch.object(RealPath, "mkdir"):
+            call_command("run_download_web", dataset_id=ds.pk)
+
+        ds.refresh_from_db()
+        assert ds.status == Dataset.STATUS_ERROR
+        assert ds.progress_message == "Failed"
+
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.subprocess.run")
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
+    def test_no_csv_found(self, mock_which, mock_subprocess_run):
+        mock_which.return_value = "/usr/local/bin/npx"
+
+        ds = _create_dataset(
+            instrument="AUD/USD",
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/nocsv.parquet",
+        )
+
+        from pathlib import Path as RealPath
+
+        from django.core.management import call_command
+
+        with (
+            patch.object(RealPath, "rglob", return_value=[]),
+            patch.object(RealPath, "mkdir"),
+        ):
+            call_command("run_download_web", dataset_id=ds.pk)
+
+        ds.refresh_from_db()
+        assert ds.status == Dataset.STATUS_ERROR
+        assert "No CSV files found" in ds.error_message
+
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
+    def test_unknown_instrument(self, mock_which):
+        mock_which.return_value = "/usr/local/bin/npx"
+        ds = _create_dataset(
+            instrument="UNKNOWN/XXX",
+            status=Dataset.STATUS_DOWNLOADING,
+            file_path="/tmp/unknown.parquet",
+        )
+
+        from django.core.management import call_command
+
+        call_command("run_download_web", dataset_id=ds.pk)
+
+        ds.refresh_from_db()
+        assert ds.status == Dataset.STATUS_ERROR
+        assert "Unknown instrument" in ds.error_message

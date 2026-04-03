@@ -5,7 +5,14 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from pyfx.data.dukascopy import ingest_to_parquet, read_dukascopy_csv
+from pyfx.data.dukascopy import (
+    DUKASCOPY_INSTRUMENTS,
+    FILENAME_TO_INSTRUMENT,
+    INSTRUMENT_FROM_DUKASCOPY,
+    canonical_parquet_name,
+    ingest_to_parquet,
+    read_dukascopy_csv,
+)
 
 
 @pytest.fixture()
@@ -78,3 +85,45 @@ def test_ingest_to_parquet_default_path(dukascopy_csv: Path) -> None:
 
     assert out == dukascopy_csv.with_suffix(".parquet")
     assert out.exists()
+
+
+# ── Instrument mapping tests ──
+
+
+def test_dukascopy_instruments_roundtrip() -> None:
+    """Forward and reverse mappings are consistent."""
+    for instrument, duka_id in DUKASCOPY_INSTRUMENTS.items():
+        assert INSTRUMENT_FROM_DUKASCOPY[duka_id] == instrument
+
+
+def test_filename_to_instrument_mapping() -> None:
+    """Filename prefix maps back to full instrument name."""
+    assert FILENAME_TO_INSTRUMENT["EURUSD"] == "EUR/USD"
+    assert FILENAME_TO_INSTRUMENT["XAUUSD"] == "XAU/USD"
+    assert FILENAME_TO_INSTRUMENT["OILUSD"] == "OIL/USD"
+
+
+def test_canonical_parquet_name() -> None:
+    """Canonical filename follows expected pattern."""
+    import datetime
+
+    name = canonical_parquet_name(
+        "EUR/USD",
+        datetime.date(2025, 1, 1),
+        datetime.date(2025, 12, 31),
+        "M1",
+    )
+    assert name == "EURUSD_2025-01-01_2025-12-31_M1.parquet"
+
+
+def test_canonical_parquet_name_different_tf() -> None:
+    """Timeframe is included in filename."""
+    import datetime
+
+    name = canonical_parquet_name(
+        "GBP/USD",
+        datetime.date(2025, 3, 1),
+        datetime.date(2025, 6, 30),
+        "H1",
+    )
+    assert name == "GBPUSD_2025-03-01_2025-06-30_H1.parquet"
