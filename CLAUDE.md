@@ -42,10 +42,10 @@ tests/
 ## Commands
 
 ```bash
-pyfx backtest -s <strategy> --start <date> --end <date> --data-file <path>  # Run a backtest
-pyfx strategies                                                              # List available strategies
-pyfx generate-sample-data                                                    # Create synthetic test data
-pyfx web                                                                     # Start Django dashboard
+uv run pyfx backtest -s <strategy> --start <date> --end <date> --data-file <path>  # Run a backtest
+uv run pyfx strategies                                                              # List available strategies
+uv run pyfx generate-sample-data                                                    # Create synthetic test data
+uv run pyfx web                                                                     # Start Django dashboard
 ```
 
 ## Configuration
@@ -64,9 +64,9 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 
 ## Quality Gates (mandatory before commit)
 
-1. `ruff check pyfx/` — zero errors
-2. `mypy pyfx/` — zero errors (strict mode)
-3. `pytest --cov=pyfx --cov-report=term-missing --cov-fail-under=100 tests/` — all pass, 100% coverage
+1. `uv run ruff check pyfx/` — zero errors
+2. `uv run mypy pyfx/` — zero errors (strict mode)
+3. `uv run pytest --cov=pyfx --cov-report=term-missing --cov-fail-under=100 tests/` — all pass, 100% coverage
 4. Run `/checking-quality` to do all of the above + security review
 
 ## Available Skills
@@ -93,10 +93,10 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 ## Development
 
 ```bash
-pip install -e ".[all]"                    # Install with all extras (web + dev)
-ruff check pyfx/                           # Lint
-mypy pyfx/                                 # Type check
-pytest --cov=pyfx tests/                   # Tests with coverage
+uv sync --all-extras                       # Install with all extras (web + dev)
+uv run ruff check pyfx/                    # Lint
+uv run mypy pyfx/                          # Type check
+uv run pytest --cov=pyfx tests/            # Tests with coverage
 ```
 
 ### Coverage target: 100%
@@ -120,8 +120,6 @@ All new code must include tests. No exceptions.
 - **Timezone handling**: bar data index must be UTC. `_load_data()` auto-localizes naive timestamps
 - **Django dashboard**: uses SQLite at `~/.pyfx/db.sqlite3`, auto-migrates on `pyfx web` startup
 - **Strategy discovery**: checks BOTH entry points AND `PYFX_STRATEGIES_DIR` — strategies from either source are available
-- **`.travis.yml` is outdated** — targets Python 2.7 from the old codebase. Ignore it.
-- **`README.rst` is outdated** — still references OANDA, TA-Lib, old architecture. CLAUDE.md is the dev reference.
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
 
 ## Security

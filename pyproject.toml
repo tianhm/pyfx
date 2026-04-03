@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "pyfx"
 version = "0.1.0"
 description = "Backtesting and live trading tool for forex and other instruments"
-readme = "README.rst"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
@@ -47,6 +47,20 @@ select = ["E", "F", "I", "UP"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[tool.coverage.run]
+branch = true
+omit = ["*/migrations/*", "*/conftest.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "NOCOV",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.html]
+directory = ".htmlcov"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

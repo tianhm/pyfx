@@ -55,4 +55,4 @@ If everything passes, say so. If anything fails, stop and fix before committing.
 
 - Ruff config is in `pyproject.toml` — line length 100, rules: E, F, I, UP, target py312
 - MyPy config is in `pyproject.toml` — strict mode, py312
-- Coverage config is in `.coveragerc`
+- Coverage config is in `pyproject.toml` under `[tool.coverage.*]`
