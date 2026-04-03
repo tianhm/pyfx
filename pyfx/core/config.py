@@ -2,12 +2,22 @@
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
 class PyfxSettings(BaseSettings):
     model_config = {"env_prefix": "PYFX_", "env_file": ".env", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _expand_user_paths(self) -> "PyfxSettings":
+        """Expand ~ in all Path fields so consumers get absolute paths."""
+        self.data_dir = self.data_dir.expanduser()
+        self.catalog_dir = self.catalog_dir.expanduser()
+        self.db_path = self.db_path.expanduser()
+        if self.strategies_dir is not None:
+            self.strategies_dir = self.strategies_dir.expanduser()
+        return self
 
     # Data
     data_dir: Path = Field(default=Path("data"), description="Local data cache (project-relative)")
