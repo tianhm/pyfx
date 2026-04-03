@@ -10,7 +10,7 @@ def test_camel_to_snake():
 
 
 def test_discover_entry_point_strategies():
-    """Entry point strategies should be discoverable after pip install -e."""
+    """Entry point strategies should be discoverable after uv pip install -e."""
     strategies = discover_strategies()
     # sample_sma is registered in pyproject.toml entry points
     # This test works when the package is installed in editable mode

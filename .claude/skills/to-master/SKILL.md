@@ -69,10 +69,9 @@ If the merge has conflicts, stop and report them — do not force-resolve.
 ## Step 7 — Post-merge checklist
 
 Tell the user what they need to do after the merge. Check for:
-- **New dependencies**: if `pyproject.toml` deps changed -> `uv sync --extra all`
+- **New dependencies**: if `pyproject.toml` deps changed -> `uv sync --all-extras`
 - **New migrations**: if Django migration files were added -> `pyfx web` will auto-migrate, or run `uv run python -m django migrate --settings=pyfx.web.pyfx_web.settings`
 - **New strategies**: if a strategy was added -> mention registering via entry points in `pyproject.toml` or placing in `strategies_dir`
 - **Config changes**: if `pyfx/core/config.py` changed -> check `PYFX_*` env vars
-- **Docker rebuild**: if `Dockerfile` or `docker-compose.yml` changed -> `docker compose build`
 
 Print a clear checklist of only the applicable items. If nothing is needed, say "No post-merge steps required."
