@@ -1,0 +1,70 @@
+{% extends "dashboard/base.html" %}
+{% block title %}pyfx - Backtests{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">Backtest Runs</h1>
+    <div class="text-sm opacity-60">{{ runs|length }} run{{ runs|length|pluralize }}</div>
+</div>
+
+{% if runs %}
+<div class="overflow-x-auto">
+    <table class="table table-zebra w-full">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Strategy</th>
+                <th>Instrument</th>
+                <th>Period</th>
+                <th class="text-right">P&L</th>
+                <th class="text-right">Return</th>
+                <th class="text-right">Trades</th>
+                <th class="text-right">Win Rate</th>
+                <th class="text-right">Max DD</th>
+                <th class="text-right">Duration</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for run in runs %}
+            <tr class="hover cursor-pointer" onclick="window.location='{% url 'dashboard:backtest_detail' run.pk %}'">
+                <td class="whitespace-nowrap">{{ run.created_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    <span class="badge badge-primary badge-sm">{{ run.strategy }}</span>
+                </td>
+                <td>{{ run.instrument }}</td>
+                <td class="whitespace-nowrap text-sm">
+                    {{ run.start|date:"Y-m-d" }} &rarr; {{ run.end|date:"Y-m-d" }}
+                </td>
+                <td class="text-right font-mono {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
+                    ${{ run.total_pnl|floatformat:2 }}
+                </td>
+                <td class="text-right font-mono {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
+                    {{ run.total_return_pct|floatformat:2 }}%
+                </td>
+                <td class="text-right">{{ run.num_trades }}</td>
+                <td class="text-right">{{ run.win_rate|floatformat:1 }}%</td>
+                <td class="text-right text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
+                <td class="text-right text-sm">{{ run.duration_seconds|floatformat:1 }}s</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="hero min-h-[50vh]">
+    <div class="hero-content text-center">
+        <div class="max-w-md">
+            <h2 class="text-xl font-bold mb-4">No backtests yet</h2>
+            <p class="mb-4 opacity-70">Run a backtest with <code class="kbd kbd-sm">--save</code> to see results here.</p>
+            <div class="mockup-code text-left text-sm">
+                <pre data-prefix="$"><code>pyfx generate-sample-data</code></pre>
+                <pre data-prefix="$"><code>pyfx backtest -s sample_sma -i EUR/USD \</code></pre>
+                <pre data-prefix=" "><code>  --start 2023-01-01 --end 2023-12-31 \</code></pre>
+                <pre data-prefix=" "><code>  --data-file ~/.pyfx/data/EURUSD_365d_M1.parquet \</code></pre>
+                <pre data-prefix=" "><code>  --save</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
