@@ -1,0 +1,116 @@
+{% extends "dashboard/base.html" %}
+{% block title %}pyfx - Overview{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-2xl font-bold">Overview</h1>
+    <p class="text-sm text-base-content/50 mt-1">Performance snapshot across all backtests</p>
+</div>
+
+{% if running_runs %}
+<!-- Running Backtests Alert -->
+<div class="alert alert-info mb-6 shadow">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5 animate-spin">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+    </svg>
+    <span>{{ running_runs }} backtest{{ running_runs|pluralize }} currently running</span>
+    <a href="{% url 'dashboard:backtest_list' %}" class="btn btn-sm btn-ghost">View</a>
+</div>
+{% endif %}
+
+{% if total_runs > 0 %}
+<!-- Summary Cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="stat bg-base-100 rounded-box shadow p-5">
+        <div class="stat-title text-xs uppercase tracking-wider opacity-50">Total Backtests</div>
+        <div class="stat-value text-2xl mt-1">{{ total_runs }}</div>
+        <div class="stat-desc mt-1">{{ strategies_tested }} strateg{{ strategies_tested|pluralize:"y,ies" }}</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-5">
+        <div class="stat-title text-xs uppercase tracking-wider opacity-50">Best Return</div>
+        <div class="stat-value text-2xl mt-1 text-success">{{ best_return|floatformat:2 }}%</div>
+        <div class="stat-desc mt-1">{{ best_strategy }}</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-5">
+        <div class="stat-title text-xs uppercase tracking-wider opacity-50">Worst Drawdown</div>
+        <div class="stat-value text-2xl mt-1 text-error">{{ worst_drawdown|floatformat:2 }}%</div>
+        <div class="stat-desc mt-1">{{ worst_dd_strategy }}</div>
+    </div>
+    <div class="stat bg-base-100 rounded-box shadow p-5">
+        <div class="stat-title text-xs uppercase tracking-wider opacity-50">Avg Win Rate</div>
+        <div class="stat-value text-2xl mt-1">{{ avg_win_rate|floatformat:1 }}%</div>
+        <div class="stat-desc mt-1">across all runs</div>
+    </div>
+</div>
+
+<!-- Recent Backtests -->
+<div class="card bg-base-100 shadow">
+    <div class="card-body p-5">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="card-title text-base">Recent Backtests</h2>
+            <a href="{% url 'dashboard:backtest_list' %}" class="btn btn-ghost btn-sm text-xs">View All &rarr;</a>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="table table-sm">
+                <thead>
+                    <tr class="text-xs uppercase tracking-wider opacity-50">
+                        <th>Date</th>
+                        <th>Strategy</th>
+                        <th>Instrument</th>
+                        <th class="text-right">P&L</th>
+                        <th class="text-right">Return</th>
+                        <th class="text-right">Trades</th>
+                        <th class="text-right">Win Rate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for run in recent_runs %}
+                    <tr class="hover cursor-pointer" onclick="window.location='{% url 'dashboard:backtest_detail' run.pk %}'">
+                        <td class="whitespace-nowrap text-sm">{{ run.created_at|date:"M d, H:i" }}</td>
+                        <td><span class="badge badge-primary badge-sm">{{ run.strategy }}</span></td>
+                        <td class="text-sm">{{ run.instrument }}</td>
+                        <td class="text-right font-mono text-sm {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
+                            ${{ run.total_pnl|floatformat:2 }}
+                        </td>
+                        <td class="text-right font-mono text-sm {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
+                            {{ run.total_return_pct|floatformat:2 }}%
+                        </td>
+                        <td class="text-right text-sm">{{ run.num_trades }}</td>
+                        <td class="text-right text-sm">{{ run.win_rate|floatformat:1 }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<!-- Empty State -->
+<div class="hero min-h-[60vh]">
+    <div class="hero-content text-center">
+        <div class="max-w-lg">
+            <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 flex items-center justify-center mx-auto mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-8 h-8 text-indigo-400" stroke-width="1.5">
+                    <path d="M3 3v18h18" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M7 16l4-8 4 4 4-8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h2 class="text-2xl font-bold mb-3">Welcome to pyfx</h2>
+            <p class="mb-6 opacity-60">Run your first backtest to see performance metrics, equity curves, and trade analysis here.</p>
+            <a href="{% url 'dashboard:backtest_list' %}" class="btn btn-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
+                    <path d="M12 5v14m-7-7h14" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Run a Backtest
+            </a>
+            <div class="divider my-6 text-xs opacity-40">OR VIA CLI</div>
+            <div class="mockup-code text-left text-sm">
+                <pre data-prefix="$"><code>pyfx generate-sample-data</code></pre>
+                <pre data-prefix="$"><code>pyfx backtest -s sample_sma --save</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

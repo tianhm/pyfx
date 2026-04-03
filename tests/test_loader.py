@@ -1,6 +1,6 @@
 """Tests for strategy discovery and loading."""
 
-from pyfx.strategies.loader import discover_strategies, _camel_to_snake
+from pyfx.strategies.loader import _camel_to_snake, discover_strategies
 
 
 def test_camel_to_snake():

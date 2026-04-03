@@ -73,7 +73,9 @@ class Command(BaseCommand):
             self.stderr.write("No data in the specified date range")
             return
 
-        self.stdout.write(f"Running: {config.strategy} on {config.instrument} ({len(bars_df)} bars)")
+        self.stdout.write(
+            f"Running: {config.strategy} on {config.instrument} ({len(bars_df)} bars)"
+        )
 
         result = run_backtest(config, bars_df, log_level=options["log_level"])
 
@@ -123,5 +125,6 @@ class Command(BaseCommand):
         ])
 
         self.stdout.write(self.style.SUCCESS(
-            f"Saved: {result.num_trades} trades, P&L ${result.total_pnl:,.2f} ({result.total_return_pct:+.2f}%)"
+            f"Saved: {result.num_trades} trades, "
+            f"P&L ${result.total_pnl:,.2f} ({result.total_return_pct:+.2f}%)"
         ))

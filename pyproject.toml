@@ -26,6 +26,7 @@ web = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    "pytest-django>=4.5",
     "ruff>=0.4",
     "mypy>=1.10",
 ]
@@ -64,3 +65,4 @@ directory = ".htmlcov"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+DJANGO_SETTINGS_MODULE = "pyfx.web.pyfx_web.settings"

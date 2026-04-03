@@ -9,11 +9,18 @@
             <a href="{% url 'dashboard:backtest_list' %}" class="btn btn-ghost btn-sm">&larr; Back</a>
             <h1 class="text-2xl font-bold">{{ run.strategy }}</h1>
             <span class="badge badge-outline">{{ run.instrument }}</span>
+            {% if run.status == 'running' %}
+                <span class="badge badge-info gap-1">
+                    <span class="loading loading-spinner loading-xs"></span> Running
+                </span>
+            {% elif run.status == 'failed' %}
+                <span class="badge badge-error">Failed</span>
+            {% endif %}
         </div>
         <p class="text-sm opacity-60">
             {{ run.start|date:"Y-m-d" }} &rarr; {{ run.end|date:"Y-m-d" }}
             &middot; ran {{ run.created_at|date:"Y-m-d H:i" }}
-            &middot; {{ run.duration_seconds|floatformat:1 }}s
+            {% if run.status == 'completed' %}&middot; {{ run.duration_seconds|floatformat:1 }}s{% endif %}
         </p>
     </div>
     <form method="post" action="{% url 'dashboard:backtest_delete' run.pk %}"
@@ -23,6 +30,26 @@
     </form>
 </div>
 
+{% if run.status == 'failed' %}
+<div class="alert alert-error mb-6">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-5 h-5 shrink-0" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6m0-6l6 6"/>
+    </svg>
+    <div>
+        <div class="font-medium">Backtest Failed</div>
+        {% if run.error_message %}<div class="text-sm opacity-80 mt-1">{{ run.error_message }}</div>{% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if run.status == 'running' %}
+<div class="alert alert-info mb-6">
+    <span class="loading loading-spinner loading-sm"></span>
+    <span>Backtest is running. This page will refresh when complete.</span>
+</div>
+{% endif %}
+
+{% if run.status == 'completed' %}
 <!-- Stats Cards -->
 <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
     <div class="stat bg-base-100 rounded-box shadow p-4">
@@ -149,11 +176,27 @@
     </div>
 </div>
 {% endif %}
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    {% if run.status == 'running' %}
+    // Poll until complete
+    const pollInterval = setInterval(function() {
+        fetch('{% url "dashboard:api_backtest_status" run.pk %}')
+            .then(r => r.json())
+            .then(data => {
+                if (data.status !== 'running') {
+                    clearInterval(pollInterval);
+                    window.location.reload();
+                }
+            });
+    }, 3000);
+    {% endif %}
+
+    {% if run.status == 'completed' %}
     // Equity Curve
     const equityEl = document.getElementById('equity-chart');
     if (equityEl) {
@@ -225,6 +268,7 @@ document.addEventListener('DOMContentLoaded', function() {
             chart.applyOptions({ width: pnlEl.clientWidth });
         }).observe(pnlEl);
     }
+    {% endif %}
 });
 </script>
 {% endblock %}
