@@ -98,6 +98,7 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 - `/fix-issue` — debug and fix a reported bug
 - `/ux-audit` — CLI ergonomics, output readability, dashboard usability audit
 - `/realism-audit` — audit backtest realism (slippage, intra-bar fills, spreads, position sizing)
+- `/research-journal` — update or create a strategy research journal after testing
 
 ## Strategy Development
 
