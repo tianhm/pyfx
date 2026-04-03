@@ -10,7 +10,7 @@ import pytest
 
 from pyfx.backtest.runner import (
     _convert_pnl_to_usd,
-    _parse_nautilus_money_currency,
+    _parse_nautilus_money,
     run_backtest,
 )
 from pyfx.core.types import BacktestConfig
@@ -113,47 +113,47 @@ def _run_experimental(
 
 
 class TestPnlCurrencyConversion:
-    """Tests for _parse_nautilus_money_currency and _convert_pnl_to_usd."""
+    """Tests for _parse_nautilus_money and _convert_pnl_to_usd."""
 
     def test_parse_usd_currency(self):
-        amount, currency = _parse_nautilus_money_currency("-56.40 USD")
+        amount, currency = _parse_nautilus_money("-56.40 USD")
         assert amount == pytest.approx(-56.40)
         assert currency == "USD"
 
     def test_parse_jpy_currency(self):
-        amount, currency = _parse_nautilus_money_currency("914703.00 JPY")
+        amount, currency = _parse_nautilus_money("914703.00 JPY")
         assert amount == pytest.approx(914703.00)
         assert currency == "JPY"
 
     def test_parse_no_currency_defaults_usd(self):
-        amount, currency = _parse_nautilus_money_currency("123.45")
+        amount, currency = _parse_nautilus_money("123.45")
         assert amount == pytest.approx(123.45)
         assert currency == "USD"
 
     def test_parse_empty_string(self):
-        amount, currency = _parse_nautilus_money_currency("")
+        amount, currency = _parse_nautilus_money("")
         assert amount == 0.0
         assert currency == "USD"
 
     def test_convert_usd_no_change(self):
-        result = _convert_pnl_to_usd(100.0, "USD", 1.10, "EUR/USD")
+        result = _convert_pnl_to_usd(100.0, "USD", 1.10)
         assert result == pytest.approx(100.0)
 
     def test_convert_jpy_to_usd(self):
         # 10000 JPY at USD/JPY 155.00 = $64.52
-        result = _convert_pnl_to_usd(10000.0, "JPY", 155.0, "USD/JPY")
+        result = _convert_pnl_to_usd(10000.0, "JPY", 155.0)
         assert result == pytest.approx(10000.0 / 155.0)
 
     def test_convert_zero_pnl(self):
-        result = _convert_pnl_to_usd(0.0, "JPY", 155.0, "USD/JPY")
-        assert result == 0.0
+        result = _convert_pnl_to_usd(0.0, "JPY", 155.0)
+        assert result == pytest.approx(0.0)
 
     def test_convert_zero_close_price_fallback(self):
-        result = _convert_pnl_to_usd(100.0, "JPY", 0.0, "USD/JPY")
+        result = _convert_pnl_to_usd(100.0, "JPY", 0.0)
         assert result == 100.0  # can't convert, returns raw
 
     def test_convert_negative_pnl(self):
-        result = _convert_pnl_to_usd(-5000.0, "JPY", 150.0, "USD/JPY")
+        result = _convert_pnl_to_usd(-5000.0, "JPY", 150.0)
         assert result == pytest.approx(-5000.0 / 150.0)
 
 

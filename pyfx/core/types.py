@@ -37,6 +37,7 @@ class TradeRecord(BaseModel):
     open_price: float
     close_price: float
     realized_pnl: float
+    pnl_currency: str = "USD"
     realized_return_pct: float
     opened_at: datetime
     closed_at: datetime

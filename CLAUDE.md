@@ -23,6 +23,7 @@ pyfx/
   cli.py                     # Click CLI entry point (backtest, strategies, generate-sample-data, web)
   core/
     config.py                # Pydantic settings (PYFX_ prefix, .env support)
+    instruments.py           # InstrumentSpec registry (precision, pricing, conversion)
     types.py                 # Pydantic models: BacktestConfig, BacktestResult, TradeRecord, EquityPoint
   strategies/
     base.py                  # PyfxStrategy base class (wraps NautilusTrader Strategy)
@@ -154,7 +155,9 @@ All new code must include tests. No exceptions.
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
 - **Backtest realism**: Runner uses `FillModel(prob_slippage=0.5, random_seed=42)` for 50% chance of 1-tick slippage on fills. Exit TP/SL checks use bar high/low (not close) for realistic intra-bar fills. `MakerTakerFeeModel` fees are low (0.002%) — spreads are the real cost for FX.
 - **CobanReborn entry_mode**: `"full"` (default) requires 5-layer confluence (often 0 trades). `"trend_follow"` uses SMA cross trigger + MACD/RSI direction filters (much more active). The `-p` CLI flag parses `true`/`false` as strings, not booleans — use `entry_mode=trend_follow` not boolean params via CLI.
-- **Non-FX instruments**: `TestInstrumentProvider.default_fx_ccy()` creates any pair with FX-style 5-decimal precision. For gold (XAU/USD ~$3000) and oil, the pip size (0.0001) is unrealistic — use ATR-based exits which auto-adapt to volatility. Fixed pip TP/SL need scaling (e.g., 300 pips for gold vs 10 for EUR/USD).
+- **Instrument registry**: `pyfx/core/instruments.py` centralizes instrument specs (precision, pricing, exchange rate needs). To add a new instrument, add one entry to `_REGISTRY`. Unknown pairs auto-detect from quote currency (JPY → 3-dec, USD → 5-dec).
+- **Non-USD-quoted pairs** (USD/JPY, EUR/JPY): Runner auto-generates `QuoteTick` data from bar close prices so NautilusTrader can convert P&L to USD. Per-trade P&L in `TradeRecord` is already converted to USD; `pnl_currency` field records the original currency.
+- **Non-FX instruments**: XAU/USD, OIL/USD etc. use custom `CurrencyPair` with 2-decimal precision (via instrument registry). `generate-sample-data` uses registry specs for instrument-appropriate price levels and volatility.
 - **Dukascopy CLI flags**: Use `-t m1` (not `-p m1`) for timeframe, `-v` for volumes, `-f csv` for format. Instrument names: `eurusd`, `usdjpy`, `gbpusd`, `xauusd`, `lightcmdusd` (WTI). `bcousd`/`brentcmdusd` returns empty data. Files land in `./download/` subdirectory by default.
 - **Sweep scripts**: `scripts/coban_sweep.py` runs 10 entry/exit variations on EUR/USD. `scripts/coban_multi_pair.py` runs top variations across 5 instruments. Both import `run_backtest` directly — run with `uv run python scripts/coban_sweep.py`.
 
