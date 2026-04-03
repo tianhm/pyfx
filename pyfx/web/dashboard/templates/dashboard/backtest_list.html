@@ -93,7 +93,7 @@
                             </svg>
                         {% endif %}
                     </td>
-                    <td class="whitespace-nowrap text-sm"><time datetime="{{ run.created_at|date:'c' }}" data-fmt='{"year":"numeric","month":"2-digit","day":"2-digit","hour":"2-digit","minute":"2-digit","hour12":false}'>{{ run.created_at|date:"Y-m-d H:i" }}</time></td>
+                    <td class="whitespace-nowrap text-sm">{{ run.created_at|date:"Y-m-d H:i" }}</td>
                     <td>
                         <span class="badge badge-primary badge-sm">{{ run.strategy }}</span>
                     </td>
@@ -108,7 +108,7 @@
                         {{ run.total_return_pct|floatformat:2 }}%
                     </td>
                     <td data-val="{{ run.num_trades }}" class="text-right text-sm">{{ run.num_trades }}</td>
-                    <td data-val="{{ run.win_rate_pct }}" class="text-right text-sm">{{ run.win_rate_pct|floatformat:1 }}%</td>
+                    <td data-val="{{ run.win_rate }}" class="text-right text-sm">{% widthratio run.win_rate 1 100 %}%</td>
                     <td data-val="{{ run.max_drawdown_pct }}" class="text-right text-sm text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
                     <td data-val="{{ run.duration_seconds }}" class="text-right text-sm opacity-70">{{ run.duration_seconds|floatformat:1 }}s</td>
                 </tr>

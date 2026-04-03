@@ -20,10 +20,9 @@ Results -> Django DB (pyfx/web/dashboard/) -> Web views + JSON APIs
 ```
 pyfx/
   __init__.py
-  cli.py                     # Click CLI entry point (backtest, strategies, data, generate-sample-data, web)
+  cli.py                     # Click CLI entry point (backtest, strategies, generate-sample-data, web)
   core/
     config.py                # Pydantic settings (PYFX_ prefix, .env support)
-    instruments.py           # InstrumentSpec registry (precision, pricing, conversion)
     types.py                 # Pydantic models: BacktestConfig, BacktestResult, TradeRecord, EquityPoint
   strategies/
     base.py                  # PyfxStrategy base class (wraps NautilusTrader Strategy)
@@ -32,8 +31,7 @@ pyfx/
     coban_reborn.py          # Multi-timeframe strategy: "full" confluence or "trend_follow" mode
     coban_experimental.py    # Experimental testbed for strategy variations (7 entry × 3 exit modes)
   data/
-    dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet + instrument mappings
-    scanner.py               # Scan data dir, register Parquet files as Dataset records
+    dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet
   backtest/
     runner.py                # NautilusTrader BacktestEngine integration
   adapters/                  # (future) live broker adapters
@@ -43,7 +41,6 @@ pyfx/
       management/commands/
         run_backtest.py      # CLI management command to run + save backtest
         run_backtest_web.py  # Subprocess command for web-triggered backtests
-        run_download_web.py  # Subprocess command for web-triggered data downloads
 research/
   README.md                  # Research journal format and conventions
   coban_reborn/journal.md    # CobanReborn strategy research journal
@@ -63,16 +60,12 @@ tests/
 
 ```bash
 uv run pyfx backtest -s <strategy> --start <date> --end <date> --data-file <path>  # Run a backtest
-uv run pyfx backtest -s coban_reborn ... --extra-bar-type 60-MINUTE-LAST-EXTERNAL --extra-bar-type 120-MINUTE-LAST-EXTERNAL  # Full confluence (1h/2h)
-uv run pyfx backtest -s coban_reborn ... --extra-bar-type 5-MINUTE-LAST-EXTERNAL --extra-bar-type 15-MINUTE-LAST-EXTERNAL -p entry_mode=trend_follow -p exit_mode=atr  # Trend follow (5m/15m)
+uv run pyfx backtest -s coban_reborn ... --extra-bar-type 5-MINUTE-LAST-EXTERNAL --extra-bar-type 15-MINUTE-LAST-EXTERNAL  # Default: trend_follow + ATR + 24h
+uv run pyfx backtest -s coban_reborn ... --extra-bar-type 5-MINUTE-LAST-EXTERNAL --extra-bar-type 15-MINUTE-LAST-EXTERNAL -p session_start_hour=8 -p session_end_hour=17  # London/NY hours only (EUR/GBP)
 uv run pyfx strategies                                                              # List available strategies
 uv run pyfx generate-sample-data                                                    # Create synthetic test data
 uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
-uv run pyfx data list                                                               # List registered datasets
-uv run pyfx data scan                                                               # Scan data dir and register Parquet files
-uv run pyfx web                                                                     # Start Django dashboard (auto-reload enabled)
-uv run pyfx web --no-reload                                                          # Start without auto-reload
-uv run pyfx manage <command>                                                         # Run any Django management command
+uv run pyfx web                                                                     # Start Django dashboard
 ```
 
 ## Configuration
@@ -81,12 +74,12 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PYFX_DATA_DIR` | Local data cache (project-relative) | `data` |
-| `PYFX_CATALOG_DIR` | NautilusTrader Parquet catalog | `data/catalog` |
+| `PYFX_DATA_DIR` | Local data cache | `~/.pyfx/data` |
+| `PYFX_CATALOG_DIR` | NautilusTrader Parquet catalog | `~/.pyfx/catalog` |
 | `PYFX_STRATEGIES_DIR` | Extra directory to scan for strategy modules | None |
 | `PYFX_DEFAULT_BALANCE` | Starting balance (USD) | 100,000 |
 | `PYFX_DEFAULT_LEVERAGE` | Leverage ratio | 50 |
-| `PYFX_DB_PATH` | SQLite database path (project-relative) | `data/db.sqlite3` |
+| `PYFX_DB_PATH` | SQLite database path | `~/.pyfx/db.sqlite3` |
 | `PYFX_SECRET_KEY` | Django secret key | dev default (change in prod) |
 
 ## Quality Gates (mandatory before commit)
@@ -105,8 +98,6 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 - `/fix-issue` — debug and fix a reported bug
 - `/ux-audit` — CLI ergonomics, output readability, dashboard usability audit
 - `/realism-audit` — audit backtest realism (slippage, intra-bar fills, spreads, position sizing)
-- `/research-journal` — update or create a strategy research journal after testing
-- `/livetrading-audit` — audit backtest-to-live fidelity (16-point check: execution, signals, P&L, deployment readiness)
 
 ## Strategy Development
 
@@ -148,9 +139,7 @@ All new code must include tests. No exceptions.
 - **NautilusTrader bar types**: must match format `step-aggregation-price_type-source` (e.g., `1-MINUTE-LAST-EXTERNAL`)
 - **Data files**: must have OHLCV columns (`open`, `high`, `low`, `close`, `volume`) with a DatetimeIndex
 - **Timezone handling**: bar data index must be UTC. `_load_data()` auto-localizes naive timestamps
-- **Django dashboard**: uses SQLite at `data/db.sqlite3` (project-relative), auto-migrates on `pyfx web` startup. Sidebar layout with DaisyUI drawer. Overview at `/`, data at `/data/`, backtests at `/backtests/`. Web-triggered backtests and downloads run via management commands in subprocesses.
-- **Data management**: `Dataset` model tracks Parquet files with metadata. Download via web UI uses `npx dukascopy-node` in subprocess. `pyfx data scan` auto-detects existing Parquet files. `pyfx web` auto-scans on startup. Data lives in project-local `data/` dir (gitignored).
-- **Project-local storage**: Data and DB default to `./data/` (not `~/.pyfx/`). The `data/` directory is gitignored. Override with `PYFX_DATA_DIR` and `PYFX_DB_PATH` env vars.
+- **Django dashboard**: uses SQLite at `~/.pyfx/db.sqlite3`, auto-migrates on `pyfx web` startup. Sidebar layout with DaisyUI drawer. Overview at `/`, backtests at `/backtests/`. Web-triggered backtests run via `run_backtest_web` management command in a subprocess.
 - **Strategy config classes**: extend NautilusTrader's `StrategyConfig` (msgspec.Struct), NOT Pydantic. Use `__struct_fields__` and `msgspec.structs.fields()` for introspection, not `model_fields`.
 - **pytest-django**: required for web tests. Configure via `DJANGO_SETTINGS_MODULE` in `pyproject.toml` `[tool.pytest.ini_options]`.
 - **Strategy discovery**: checks BOTH entry points AND `PYFX_STRATEGIES_DIR` — strategies from either source are available
@@ -162,11 +151,9 @@ All new code must include tests. No exceptions.
 - **NautilusTrader indicators import**: Use `from nautilus_trader.indicators import RelativeStrengthIndex, SimpleMovingAverage, ExponentialMovingAverage` (top-level `indicators` module, not submodules like `indicators.rsi`)
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
 - **Backtest realism**: Runner uses `FillModel(prob_slippage=0.5, random_seed=42)` for 50% chance of 1-tick slippage on fills. Exit TP/SL checks use bar high/low (not close) for realistic intra-bar fills. `MakerTakerFeeModel` fees are low (0.002%) — spreads are the real cost for FX.
-- **CobanReborn entry_mode**: `"full"` (default) requires 5-layer confluence (often 0 trades). `"trend_follow"` uses SMA cross trigger + MACD/RSI direction filters (much more active). The `-p` CLI flag parses `true`/`false` as strings, not booleans — use `entry_mode=trend_follow` not boolean params via CLI.
-- **Instrument registry**: `pyfx/core/instruments.py` centralizes instrument specs (precision, pricing, exchange rate needs). To add a new instrument, add one entry to `_REGISTRY`. Unknown pairs auto-detect from quote currency (JPY → 3-dec, USD → 5-dec).
-- **Non-USD-quoted pairs** (USD/JPY, EUR/JPY): Runner auto-generates `QuoteTick` data from bar close prices so NautilusTrader can convert P&L to USD. Per-trade P&L in `TradeRecord` is already converted to USD; `pnl_currency` field records the original currency.
-- **Non-FX instruments**: XAU/USD, OIL/USD etc. use custom `CurrencyPair` with 2-decimal precision (via instrument registry). `generate-sample-data` uses registry specs for instrument-appropriate price levels and volatility.
-- **Dukascopy CLI flags**: Use `-t m1` (not `-p m1`) for timeframe, `-v` for volumes, `-f csv` for format. Instrument names: `eurusd`, `usdjpy`, `gbpusd`, `xauusd`, `lightcmdusd` (WTI). `bcousd`/`brentcmdusd` returns empty data. Files land in `./download/` subdirectory by default.
+- **CobanReborn defaults**: `entry_mode="trend_follow"`, `exit_mode="atr"`, 24h trading (`session_start_hour=0`, `session_end_hour=24`). Use `-p session_start_hour=8 -p session_end_hour=17` for EUR/GBP. The old `"full"` mode requires 5-layer confluence (often 0 trades). The `-p` CLI flag parses `true`/`false` as strings, not booleans — use `entry_mode=trend_follow` not boolean params via CLI.
+- **Non-FX instruments**: `TestInstrumentProvider.default_fx_ccy()` creates any pair with FX-style 5-decimal precision. For gold (XAU/USD ~$3000) and oil, the pip size (0.0001) is unrealistic — use ATR-based exits which auto-adapt to volatility. Fixed pip TP/SL need scaling (e.g., 300 pips for gold vs 10 for EUR/USD).
+- **Dukascopy CLI flags**: Use `--date-from`/`--date-to` (not `-s`/`-e`), `-t m1` for timeframe, `-v` for volumes, `-f csv` for format, `--directory .` to save in current dir. Instrument names: `eurusd`, `usdjpy`, `gbpusd`, `xauusd`, `lightcmdusd` (WTI), `usdchf`, `eurgbp`. `bcousd`/`brentcmdusd` returns empty data. `audusd`/`nzdusd` may fail (IP blocking — use VPN).
 - **Sweep scripts**: `scripts/coban_sweep.py` runs 10 entry/exit variations on EUR/USD. `scripts/coban_multi_pair.py` runs top variations across 5 instruments. Both import `run_backtest` directly — run with `uv run python scripts/coban_sweep.py`.
 
 ## Security
