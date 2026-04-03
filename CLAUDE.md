@@ -28,6 +28,7 @@ pyfx/
     base.py                  # PyfxStrategy base class (wraps NautilusTrader Strategy)
     loader.py                # Strategy discovery via entry points + directory scanning
     sample_sma.py            # SMA crossover demo strategy
+    coban_reborn.py          # Multi-timeframe confluence strategy (SMA+MACD+RSI)
   data/
     dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet
   backtest/
@@ -43,6 +44,7 @@ tests/
   conftest.py                # pytest-django configuration
   test_loader.py             # Strategy discovery tests
   test_sample_strategy.py    # SMA backtest smoke test
+  test_coban_reborn.py       # CobanReborn strategy + multi-TF infrastructure tests
   test_ingest.py             # Dukascopy CSV ingestion tests
   test_web.py                # Django dashboard views, APIs, management commands
 ```
@@ -51,6 +53,7 @@ tests/
 
 ```bash
 uv run pyfx backtest -s <strategy> --start <date> --end <date> --data-file <path>  # Run a backtest
+uv run pyfx backtest -s coban_reborn ... --extra-bar-type 60-MINUTE-LAST-EXTERNAL --extra-bar-type 120-MINUTE-LAST-EXTERNAL  # Multi-timeframe
 uv run pyfx strategies                                                              # List available strategies
 uv run pyfx generate-sample-data                                                    # Create synthetic test data
 uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
@@ -134,6 +137,9 @@ All new code must include tests. No exceptions.
 - **NautilusTrader RSI range**: `RelativeStrengthIndex.value` returns 0.0–1.0 (not 0–100). Strategy thresholds must use 0.30/0.70 not 30/70
 - **Dukascopy data download**: `duka` Python package is broken; use `npx dukascopy-node` instead. Dukascopy may block certain IPs — use VPN if timeouts occur
 - **Package manager**: use `uv` (not `pip`) for all package management
+- **Multi-timeframe backtests**: use `--extra-bar-type` (repeatable) on the CLI. Runner resamples M1 data to higher timeframes. Strategy receives bars via `on_bar()` — dispatch by `bar.bar_type`. `PyfxStrategyConfig.extra_bar_types` must be a `tuple` (frozen struct).
+- **MACD histogram**: NautilusTrader's `MovingAverageConvergenceDivergence` only provides the MACD line (`.value`), not the signal line or histogram. Compute these manually using two EMAs + a signal-line EMA.
+- **NautilusTrader indicators import**: Use `from nautilus_trader.indicators import RelativeStrengthIndex, SimpleMovingAverage, ExponentialMovingAverage` (top-level `indicators` module, not submodules like `indicators.rsi`)
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
 
 ## Security

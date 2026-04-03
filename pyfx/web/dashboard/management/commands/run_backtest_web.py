@@ -37,6 +37,7 @@ class Command(BaseCommand):  # type: ignore[misc]
                 start=run.start,
                 end=run.end,
                 bar_type=run.bar_type,
+                extra_bar_types=run.extra_bar_types,
                 trade_size=Decimal(str(run.trade_size)),
                 balance=run.balance,
                 leverage=run.leverage,

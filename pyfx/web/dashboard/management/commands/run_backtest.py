@@ -16,6 +16,7 @@ class Command(BaseCommand):
         parser.add_argument("--end", required=True)
         parser.add_argument("--data-file", required=True, type=Path)
         parser.add_argument("--bar-type", default="1-MINUTE-LAST-EXTERNAL")
+        parser.add_argument("--extra-bar-type", action="append", default=[])
         parser.add_argument("--trade-size", default="100000")
         parser.add_argument("--balance", type=float, default=100_000.0)
         parser.add_argument("--leverage", type=float, default=50.0)
@@ -52,6 +53,7 @@ class Command(BaseCommand):
             start=start,
             end=end,
             bar_type=options["bar_type"],
+            extra_bar_types=options["extra_bar_type"],
             trade_size=Decimal(options["trade_size"]),
             balance=options["balance"],
             leverage=options["leverage"],
@@ -86,6 +88,7 @@ class Command(BaseCommand):
             start=result.config.start,
             end=result.config.end,
             bar_type=result.config.bar_type,
+            extra_bar_types=result.config.extra_bar_types,
             trade_size=float(result.config.trade_size),
             balance=result.config.balance,
             leverage=result.config.leverage,

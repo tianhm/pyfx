@@ -17,6 +17,10 @@ class BacktestConfig(BaseModel):
         default="1-MINUTE-LAST-EXTERNAL",
         description="Bar specification (step-aggregation-price_type-source)",
     )
+    extra_bar_types: list[str] = Field(
+        default_factory=list,
+        description="Additional bar types for multi-timeframe strategies",
+    )
     trade_size: Decimal = Field(default=Decimal("100000"))
     balance: float = 100_000.0
     leverage: float = 50.0

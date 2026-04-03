@@ -14,6 +14,7 @@ class PyfxStrategyConfig(StrategyConfig, frozen=True):
 
     instrument_id: InstrumentId
     bar_type: BarType
+    extra_bar_types: tuple[BarType, ...] = ()
     trade_size: Decimal = Decimal("100000")
 
 

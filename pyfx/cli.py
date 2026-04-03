@@ -23,6 +23,10 @@ def main() -> None:
 @click.option("--start", required=True, type=click.DateTime(), help="Start date")
 @click.option("--end", required=True, type=click.DateTime(), help="End date")
 @click.option("--bar-type", default="1-MINUTE-LAST-EXTERNAL", help="Bar type spec")
+@click.option(
+    "--extra-bar-type", multiple=True,
+    help="Extra bar types for multi-timeframe (repeatable)",
+)
 @click.option("--trade-size", default="100000", help="Trade size")
 @click.option("--balance", default=100_000.0, help="Starting balance (USD)")
 @click.option("--leverage", default=50.0, help="Leverage ratio")
@@ -39,6 +43,7 @@ def backtest(
     start: datetime,
     end: datetime,
     bar_type: str,
+    extra_bar_type: tuple[str, ...],
     trade_size: str,
     balance: float,
     leverage: float,
@@ -60,6 +65,7 @@ def backtest(
         start=start,
         end=end,
         bar_type=bar_type,
+        extra_bar_types=list(extra_bar_type),
         trade_size=Decimal(trade_size),
         balance=balance,
         leverage=leverage,
@@ -268,6 +274,7 @@ def _save_to_django(result) -> None:
         start=result.config.start,
         end=result.config.end,
         bar_type=result.config.bar_type,
+        extra_bar_types=result.config.extra_bar_types,
         trade_size=float(result.config.trade_size),
         balance=result.config.balance,
         leverage=result.config.leverage,

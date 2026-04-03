@@ -21,6 +21,7 @@ class BacktestRun(models.Model):
     start = models.DateTimeField()
     end = models.DateTimeField()
     bar_type = models.CharField(max_length=100, default="1-MINUTE-LAST-EXTERNAL")
+    extra_bar_types = models.JSONField(default=list, blank=True)
     trade_size = models.FloatField(default=100_000)
     balance = models.FloatField(default=100_000)
     leverage = models.FloatField(default=50)

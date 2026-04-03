@@ -50,6 +50,45 @@ def _parse_nautilus_money(value) -> float:
     return float(parts[0]) if parts else 0.0
 
 
+_AGGREGATION_FREQ: dict[str, str] = {
+    "SECOND": "s",
+    "MINUTE": "min",
+    "HOUR": "h",
+    "DAY": "D",
+}
+
+
+def _resample_bars(bars_df: pd.DataFrame, bar_type_str: str) -> pd.DataFrame:
+    """Resample OHLCV bars to a higher timeframe.
+
+    Args:
+        bars_df: Source DataFrame with OHLCV columns and DatetimeIndex.
+        bar_type_str: Bar type spec like ``"60-MINUTE-LAST-EXTERNAL"``.
+
+    Returns:
+        Resampled DataFrame with the same column structure.
+    """
+    parts = bar_type_str.split("-")
+    step = int(parts[0])
+    aggregation = parts[1]
+    suffix = _AGGREGATION_FREQ.get(aggregation)
+    if suffix is None:
+        raise ValueError(f"Unsupported aggregation '{aggregation}' in '{bar_type_str}'")
+    rule = f"{step}{suffix}"
+
+    agg = {
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+    }
+    if "volume" in bars_df.columns:
+        agg["volume"] = "sum"
+
+    resampled: pd.DataFrame = bars_df.resample(rule).agg(agg).dropna()  # type: ignore[arg-type]
+    return resampled
+
+
 def _get_instrument(instrument_str: str, venue: str):
     """Get a NautilusTrader instrument for the given string (e.g. 'EUR/USD')."""
     return TestInstrumentProvider.default_fx_ccy(instrument_str, Venue(venue))
@@ -97,13 +136,30 @@ def run_backtest(
     )
 
     engine.add_instrument(instrument)
-    engine.add_data(bars)
+
+    # Add base bars (unsorted); extra timeframes follow
+    has_extra = len(config.extra_bar_types) > 0
+    engine.add_data(bars, sort=not has_extra)
+
+    extra_bar_type_objects: tuple[BarType, ...] = ()
+    if has_extra:
+        extra_bt_list: list[BarType] = []
+        for extra_bt_str in config.extra_bar_types:
+            extra_bt = BarType.from_str(f"{instrument.id}-{extra_bt_str}")
+            resampled_df = _resample_bars(bars_df, extra_bt_str)
+            extra_wrangler = BarDataWrangler(extra_bt, instrument)
+            extra_bars = extra_wrangler.process(resampled_df)
+            engine.add_data(extra_bars, sort=False)
+            extra_bt_list.append(extra_bt)
+        extra_bar_type_objects = tuple(extra_bt_list)
+        engine.sort_data()
 
     strategy_cls = get_strategy(config.strategy, settings.strategies_dir)
     config_cls = _find_config_class(strategy_cls)
     strategy_config = config_cls(
         instrument_id=instrument.id,
         bar_type=bar_type,
+        extra_bar_types=extra_bar_type_objects,
         trade_size=config.trade_size,
         **config.strategy_params,
     )
