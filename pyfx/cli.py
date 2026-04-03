@@ -122,6 +122,10 @@ def generate_sample_data(instrument: str, days: int, output: Path | None) -> Non
     import numpy as np
     import pandas as pd
 
+    from pyfx.core.instruments import get_instrument_spec
+
+    spec = get_instrument_spec(instrument)
+
     if output is None:
         settings.data_dir.mkdir(parents=True, exist_ok=True)
         safe_name = instrument.replace("/", "")
@@ -130,22 +134,24 @@ def generate_sample_data(instrument: str, days: int, output: Path | None) -> Non
     n = days * 24 * 60  # 1-minute bars
     rng = np.random.default_rng(42)
 
-    # Random walk with mean reversion
-    base_price = 1.10 if "EUR" in instrument else 150.0
-    returns = rng.normal(0, 0.0001, n)
+    # Random walk with mean reversion using instrument-appropriate scales
+    base_price = spec.base_price
+    returns = rng.normal(0, spec.volatility, n)
     price = base_price + np.cumsum(returns)
     # Mean revert gently
+    reversion_rate = spec.volatility  # proportional to volatility
     for i in range(1, len(price)):
-        price[i] += (base_price - price[i]) * 0.0001
+        price[i] += (base_price - price[i]) * reversion_rate
 
-    spread = np.abs(rng.normal(0.00005, 0.00002, n))
+    half_spread = spec.spread
+    spread = np.abs(rng.normal(half_spread, half_spread * 0.4, n))
 
     bars_df = pd.DataFrame(
         {
             "open": price,
-            "high": price + spread + np.abs(rng.normal(0, 0.0001, n)),
-            "low": price - spread - np.abs(rng.normal(0, 0.0001, n)),
-            "close": price + rng.normal(0, 0.00005, n),
+            "high": price + spread + np.abs(rng.normal(0, spec.volatility, n)),
+            "low": price - spread - np.abs(rng.normal(0, spec.volatility, n)),
+            "close": price + rng.normal(0, spec.volatility * 0.5, n),
             "volume": rng.integers(500_000, 2_000_000, n).astype(float),
         },
         index=pd.date_range("2023-01-01", periods=n, freq="1min", tz="UTC"),
