@@ -69,8 +69,8 @@ If the merge has conflicts, stop and report them — do not force-resolve.
 ## Step 7 — Post-merge checklist
 
 Tell the user what they need to do after the merge. Check for:
-- **New dependencies**: if `pyproject.toml` deps changed -> `pip install -e ".[dev]"` or `pip install -e ".[all]"`
-- **New migrations**: if Django migration files were added -> `pyfx web` will auto-migrate, or run `python -m django migrate --settings=pyfx.web.pyfx_web.settings`
+- **New dependencies**: if `pyproject.toml` deps changed -> `uv sync --extra all`
+- **New migrations**: if Django migration files were added -> `pyfx web` will auto-migrate, or run `uv run python -m django migrate --settings=pyfx.web.pyfx_web.settings`
 - **New strategies**: if a strategy was added -> mention registering via entry points in `pyproject.toml` or placing in `strategies_dir`
 - **Config changes**: if `pyfx/core/config.py` changed -> check `PYFX_*` env vars
 - **Docker rebuild**: if `Dockerfile` or `docker-compose.yml` changed -> `docker compose build`
