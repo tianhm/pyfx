@@ -152,6 +152,12 @@ class BacktestListViewTests(TestCase):
         resp = self.client.get("/backtests/")
         assert b"New Backtest" in resp.content
 
+    def test_list_contains_action_buttons(self):
+        run = _create_run()
+        resp = self.client.get("/backtests/")
+        assert f"/run/{run.pk}/rerun/".encode() in resp.content
+        assert f"/run/{run.pk}/delete/".encode() in resp.content
+
 
 class BacktestDetailViewTests(TestCase):
     def setUp(self):
@@ -225,6 +231,37 @@ class BacktestDeleteViewTests(TestCase):
 
     def test_delete_404(self):
         resp = self.client.post("/run/99999/delete/")
+        assert resp.status_code == 404
+
+
+class BacktestRerunViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    @patch("pyfx.web.dashboard.views.subprocess.Popen")
+    def test_rerun_post_clones_run(self, mock_popen):
+        original = _create_run(
+            strategy="coban_reborn",
+            strategy_params={"entry_mode": "trend_follow"},
+            data_file="/tmp/test.parquet",
+        )
+        resp = self.client.post(f"/run/{original.pk}/rerun/")
+        assert resp.status_code == 302
+        new_run = BacktestRun.objects.exclude(pk=original.pk).get()
+        assert new_run.strategy == "coban_reborn"
+        assert new_run.instrument == original.instrument
+        assert new_run.strategy_params == {"entry_mode": "trend_follow"}
+        assert new_run.data_file == "/tmp/test.parquet"
+        assert new_run.status == BacktestRun.STATUS_RUNNING
+        mock_popen.assert_called_once()
+
+    def test_rerun_get_redirects(self):
+        run = _create_run()
+        resp = self.client.get(f"/run/{run.pk}/rerun/")
+        assert resp.status_code == 302
+
+    def test_rerun_404(self):
+        resp = self.client.post("/run/99999/rerun/")
         assert resp.status_code == 404
 
 

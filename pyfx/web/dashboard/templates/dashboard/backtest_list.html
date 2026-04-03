@@ -73,6 +73,7 @@
                     <th data-sort="num" class="text-right">Win Rate</th>
                     <th data-sort="num" class="text-right">Max DD</th>
                     <th data-sort="num" class="text-right">Duration</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
@@ -111,6 +112,27 @@
                     <td data-val="{{ run.win_rate_pct }}" class="text-right text-sm">{{ run.win_rate_pct|floatformat:1 }}%</td>
                     <td data-val="{{ run.max_drawdown_pct }}" class="text-right text-sm text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
                     <td data-val="{{ run.duration_seconds }}" class="text-right text-sm opacity-70">{{ run.duration_seconds|floatformat:1 }}s</td>
+                    <td class="text-right" onclick="event.stopPropagation()">
+                        <div class="flex gap-1 justify-end">
+                            <form method="post" action="{% url 'dashboard:backtest_rerun' run.pk %}" class="inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-ghost btn-xs tooltip" data-tip="Re-run">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
+                                        <path d="M1 4v6h6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </button>
+                            </form>
+                            <form method="post" action="{% url 'dashboard:backtest_delete' run.pk %}" class="inline"
+                                  onsubmit="return confirm('Delete this backtest run?')">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-ghost btn-xs text-error tooltip" data-tip="Delete">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
+                                        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
