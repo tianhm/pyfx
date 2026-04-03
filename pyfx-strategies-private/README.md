@@ -6,10 +6,10 @@ Private trading strategies for pyfx. This repo is separate from the public pyfx 
 
 ```bash
 # Install pyfx first (from the main repo)
-pip install -e /path/to/pyfx-cli
+uv pip install -e /path/to/pyfx-cli
 
 # Install private strategies
-pip install -e .
+uv pip install -e .
 ```
 
 ## Usage
@@ -32,7 +32,7 @@ pyfx backtest -s rsi_trend -i EUR/USD \
 1. Create a new file in `strategies/` (e.g. `strategies/my_strategy.py`)
 2. Extend `PyfxStrategy` and `PyfxStrategyConfig` from `pyfx.strategies.base`
 3. Register it in `pyproject.toml` under `[project.entry-points."pyfx.strategies"]`
-4. Run `pip install -e .` to update the entry points
+4. Run `uv pip install -e .` to update the entry points
 
 ```python
 from decimal import Decimal

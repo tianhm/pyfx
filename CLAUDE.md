@@ -98,10 +98,10 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 ## Development
 
 ```bash
-pip install -e ".[all]"                    # Install with all extras (web + dev)
-ruff check pyfx/                           # Lint
-mypy pyfx/                                 # Type check
-pytest --cov=pyfx tests/                   # Tests with coverage
+uv sync --extra all                        # Install with all extras (web + dev)
+uv run ruff check pyfx/                    # Lint
+uv run mypy pyfx/                          # Type check
+uv run pytest --cov=pyfx tests/            # Tests with coverage
 ```
 
 ### Coverage target: 100%
