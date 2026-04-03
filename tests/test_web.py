@@ -187,6 +187,51 @@ class BacktestDetailViewTests(TestCase):
         assert "time" in pnl[0]
         assert isinstance(pnl[0]["time"], int)
 
+    def test_detail_trade_markers_json(self):
+        resp = self.client.get(f"/run/{self.run.pk}/")
+        markers = json.loads(resp.context["trade_markers_json"])
+        # 2 trades × 2 markers (entry + exit) = 4
+        assert len(markers) == 4
+        assert markers[0]["type"] == "entry"
+        assert markers[1]["type"] == "exit"
+        assert "time" in markers[0]
+        assert "side" in markers[0]
+        assert "price" in markers[0]
+
+    def test_detail_available_timeframes(self):
+        resp = self.client.get(f"/run/{self.run.pk}/")
+        tfs = json.loads(resp.context["available_timeframes_json"])
+        assert "1-MINUTE-LAST-EXTERNAL" in tfs
+        assert "5-MINUTE-LAST-EXTERNAL" in tfs
+
+    def test_detail_chart_indicators_json(self):
+        resp = self.client.get(f"/run/{self.run.pk}/")
+        inds = json.loads(resp.context["chart_indicators_json"])
+        assert isinstance(inds, list)
+
+    def test_detail_extra_bar_types_in_timeframes(self):
+        run = _create_run(extra_bar_types=["5-MINUTE-LAST-EXTERNAL", "15-MINUTE-LAST-EXTERNAL"])
+        resp = self.client.get(f"/run/{run.pk}/")
+        tfs = json.loads(resp.context["available_timeframes_json"])
+        assert "5-MINUTE-LAST-EXTERNAL" in tfs
+        assert "15-MINUTE-LAST-EXTERNAL" in tfs
+        assert "1-MINUTE-LAST-EXTERNAL" in tfs
+
+    def test_detail_chart_indicators_strategy_defaults(self):
+        """Strategy chart_indicators() are loaded into context."""
+        run = _create_run(strategy="sample_sma")
+        resp = self.client.get(f"/run/{run.pk}/")
+        inds = json.loads(resp.context["chart_indicators_json"])
+        # sample_sma has SMA(10) and SMA(50)
+        assert len(inds) >= 2
+
+    def test_detail_chart_indicators_unknown_strategy(self):
+        """Unknown strategy should not crash, just return empty list."""
+        run = _create_run(strategy="nonexistent_strategy_xyz")
+        resp = self.client.get(f"/run/{run.pk}/")
+        inds = json.loads(resp.context["chart_indicators_json"])
+        assert inds == []
+
     def test_detail_404(self):
         resp = self.client.get("/run/99999/")
         assert resp.status_code == 404
@@ -384,6 +429,199 @@ class ApiStrategiesViewTests(TestCase):
             param_names = [p["name"] for p in sma["params"]]
             assert "fast_period" in param_names
             assert "slow_period" in param_names
+
+
+class ApiBarsViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.run = _create_run()
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_bars_ok(self, mock_load: MagicMock) -> None:
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "open": [1.1, 1.2],
+                "high": [1.15, 1.25],
+                "low": [1.05, 1.15],
+                "close": [1.12, 1.22],
+                "volume": [100.0, 200.0],
+            },
+            index=pd.date_range("2024-01-02", periods=2, freq="min", tz="UTC"),
+        )
+        mock_load.return_value = df
+        resp = self.client.get(f"/api/run/{self.run.pk}/bars/?timeframe=5-MINUTE-LAST-EXTERNAL")
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        assert len(data) == 2
+        assert "time" in data[0]
+        assert "open" in data[0]
+        assert "high" in data[0]
+        assert "low" in data[0]
+        assert "close" in data[0]
+        assert "volume" in data[0]
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_bars_file_not_found(self, mock_load: MagicMock) -> None:
+        mock_load.side_effect = FileNotFoundError("Data file not found")
+        resp = self.client.get(f"/api/run/{self.run.pk}/bars/")
+        assert resp.status_code == 404
+
+    def test_bars_404_run(self) -> None:
+        resp = self.client.get("/api/run/99999/bars/")
+        assert resp.status_code == 404
+
+    def test_bars_invalid_timeframe(self) -> None:
+        resp = self.client.get(f"/api/run/{self.run.pk}/bars/?timeframe=bad-value")
+        assert resp.status_code == 400
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_bars_hard_cap(self, mock_load: MagicMock) -> None:
+        """Explicit timeframe with >10k bars gets truncated."""
+        import pandas as pd
+
+        big_df = pd.DataFrame(
+            {
+                "open": [1.1] * 15000,
+                "high": [1.2] * 15000,
+                "low": [1.0] * 15000,
+                "close": [1.15] * 15000,
+                "volume": [100.0] * 15000,
+            },
+            index=pd.date_range("2024-01-02", periods=15000, freq="min", tz="UTC"),
+        )
+        mock_load.return_value = big_df
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/bars/?timeframe=1-MINUTE-LAST-EXTERNAL"
+        )
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        assert len(data) == 10000
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_bars_auto_downsample(self, mock_load: MagicMock) -> None:
+        import pandas as pd
+
+        # First call returns large dataset (>10k), second returns downsampled
+        big_df = pd.DataFrame(
+            {
+                "open": [1.1] * 15000,
+                "high": [1.2] * 15000,
+                "low": [1.0] * 15000,
+                "close": [1.15] * 15000,
+                "volume": [100.0] * 15000,
+            },
+            index=pd.date_range("2024-01-02", periods=15000, freq="min", tz="UTC"),
+        )
+        small_df = pd.DataFrame(
+            {
+                "open": [1.1] * 100,
+                "high": [1.2] * 100,
+                "low": [1.0] * 100,
+                "close": [1.15] * 100,
+                "volume": [100.0] * 100,
+            },
+            index=pd.date_range("2024-01-02", periods=100, freq="5min", tz="UTC"),
+        )
+        mock_load.side_effect = [big_df, small_df]
+        resp = self.client.get(f"/api/run/{self.run.pk}/bars/")
+        assert resp.status_code == 200
+        # load_bars called twice: once without tf, once with auto tf
+        assert mock_load.call_count == 2
+
+
+class ApiIndicatorsViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.run = _create_run()
+
+    @patch("pyfx.data.resample.compute_indicator")
+    @patch("pyfx.data.resample.load_bars")
+    def test_indicator_sma(self, mock_load: MagicMock, mock_compute: MagicMock) -> None:
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {"close": [1.1, 1.2, 1.3]},
+            index=pd.date_range("2024-01-02", periods=3, freq="min", tz="UTC"),
+        )
+        mock_load.return_value = df
+        mock_compute.return_value = pd.Series(
+            [float("nan"), 1.15, 1.25],
+            index=df.index,
+        )
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/indicators/?name=sma&period=2"
+        )
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        assert len(data) == 2  # NaN dropped
+        assert "time" in data[0]
+        assert "value" in data[0]
+
+    @patch("pyfx.data.resample.compute_indicator")
+    @patch("pyfx.data.resample.load_bars")
+    def test_indicator_macd(self, mock_load: MagicMock, mock_compute: MagicMock) -> None:
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {"close": [1.1, 1.2, 1.3]},
+            index=pd.date_range("2024-01-02", periods=3, freq="min", tz="UTC"),
+        )
+        mock_load.return_value = df
+        mock_compute.return_value = {
+            "macd": pd.Series([0.01, 0.02, 0.03], index=df.index),
+            "signal": pd.Series([0.005, 0.015, 0.025], index=df.index),
+            "histogram": pd.Series([0.005, 0.005, 0.005], index=df.index),
+        }
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/indicators/?name=macd&period=12"
+        )
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        assert "macd" in data
+        assert "signal" in data
+        assert "histogram" in data
+
+    def test_indicator_missing_name(self) -> None:
+        resp = self.client.get(f"/api/run/{self.run.pk}/indicators/")
+        assert resp.status_code == 400
+
+    def test_indicator_invalid_name(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/indicators/?name=bollinger&period=20"
+        )
+        assert resp.status_code == 400
+
+    def test_indicator_invalid_period(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/indicators/?name=sma&period=abc"
+        )
+        assert resp.status_code == 400
+
+    def test_indicator_period_out_of_range(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/indicators/?name=sma&period=0"
+        )
+        assert resp.status_code == 400
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/indicators/?name=sma&period=999"
+        )
+        assert resp.status_code == 400
+
+    def test_indicator_invalid_timeframe(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/indicators/?name=sma&period=20&timeframe=bad"
+        )
+        assert resp.status_code == 400
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_indicator_file_not_found(self, mock_load: MagicMock) -> None:
+        mock_load.side_effect = FileNotFoundError("not found")
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/indicators/?name=sma&period=20"
+        )
+        assert resp.status_code == 404
 
 
 class ApiEquityCurveViewTests(TestCase):

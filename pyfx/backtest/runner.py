@@ -21,6 +21,7 @@ from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from pyfx.core.config import settings
 from pyfx.core.instruments import get_instrument_spec
 from pyfx.core.types import BacktestConfig, BacktestResult, EquityPoint, TradeRecord
+from pyfx.data.resample import resample_bars as _resample_bars_shared
 from pyfx.strategies.loader import get_strategy
 
 
@@ -61,43 +62,12 @@ def _parse_nautilus_money(value) -> tuple[float, str]:
     return 0.0, "USD"
 
 
-_AGGREGATION_FREQ: dict[str, str] = {
-    "SECOND": "s",
-    "MINUTE": "min",
-    "HOUR": "h",
-    "DAY": "D",
-}
-
-
 def _resample_bars(bars_df: pd.DataFrame, bar_type_str: str) -> pd.DataFrame:
     """Resample OHLCV bars to a higher timeframe.
 
-    Args:
-        bars_df: Source DataFrame with OHLCV columns and DatetimeIndex.
-        bar_type_str: Bar type spec like ``"60-MINUTE-LAST-EXTERNAL"``.
-
-    Returns:
-        Resampled DataFrame with the same column structure.
+    Delegates to the shared ``pyfx.data.resample`` module.
     """
-    parts = bar_type_str.split("-")
-    step = int(parts[0])
-    aggregation = parts[1]
-    suffix = _AGGREGATION_FREQ.get(aggregation)
-    if suffix is None:
-        raise ValueError(f"Unsupported aggregation '{aggregation}' in '{bar_type_str}'")
-    rule = f"{step}{suffix}"
-
-    agg = {
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-    }
-    if "volume" in bars_df.columns:
-        agg["volume"] = "sum"
-
-    resampled: pd.DataFrame = bars_df.resample(rule).agg(agg).dropna()  # type: ignore[arg-type]
-    return resampled
+    return _resample_bars_shared(bars_df, bar_type_str)
 
 
 def _get_instrument(instrument_str: str, venue: str):

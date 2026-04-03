@@ -254,6 +254,15 @@ class CobanRebornStrategy(PyfxStrategy):
     All modes share MACD reversal exit (configurable) and session-hour filter.
     """
 
+    @classmethod
+    def chart_indicators(cls) -> list[dict[str, object]]:
+        return [
+            {"name": "sma", "period": 4},
+            {"name": "sma", "period": 9},
+            {"name": "rsi", "period": 14},
+            {"name": "macd", "period": 12},
+        ]
+
     def __init__(self, config: CobanRebornConfig) -> None:
         super().__init__(config)
 

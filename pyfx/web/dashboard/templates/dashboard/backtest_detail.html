@@ -167,6 +167,50 @@
 </div>
 {% endif %}
 
+<!-- Price Chart -->
+<div class="card bg-base-100 shadow mb-6">
+    <div class="card-body p-4">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+            <h2 class="card-title text-sm mr-auto">Price Chart</h2>
+            <!-- Chart type selector -->
+            <select id="chart-type" class="select select-xs select-bordered">
+                <option value="candlestick">Candlestick</option>
+                <option value="line">Line</option>
+                <option value="area">Area</option>
+            </select>
+            <!-- Timeframe selector -->
+            <select id="chart-timeframe" class="select select-xs select-bordered">
+            </select>
+            <!-- Add indicator dropdown -->
+            <div class="dropdown dropdown-end">
+                <div tabindex="0" role="button" class="btn btn-xs btn-outline gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2"><path d="M12 5v14m-7-7h14"/></svg>
+                    Indicator
+                </div>
+                <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300">
+                    <li class="menu-title text-xs">Overlays</li>
+                    <li><a data-ind="sma" data-period="20">SMA (20)</a></li>
+                    <li><a data-ind="sma" data-period="50">SMA (50)</a></li>
+                    <li><a data-ind="ema" data-period="20">EMA (20)</a></li>
+                    <li><a data-ind="ema" data-period="50">EMA (50)</a></li>
+                    <li class="menu-title text-xs">Oscillators</li>
+                    <li><a data-ind="rsi" data-period="14">RSI (14)</a></li>
+                    <li><a data-ind="macd" data-period="12">MACD (12,26,9)</a></li>
+                    <li><a data-ind="atr" data-period="14">ATR (14)</a></li>
+                </ul>
+            </div>
+        </div>
+        <!-- Active indicators chips -->
+        <div id="indicator-chips" class="flex flex-wrap gap-1 mb-2" style="display:none;"></div>
+        <!-- Chart container -->
+        <div id="price-chart" style="height: 400px;" class="flex items-center justify-center">
+            <span class="loading loading-dots loading-md opacity-30"></span>
+        </div>
+        <!-- Indicator panes -->
+        <div id="indicator-panes"></div>
+    </div>
+</div>
+
 <!-- Equity Curve Chart -->
 <div class="card bg-base-100 shadow mb-6">
     <div class="card-body p-4">
@@ -211,7 +255,7 @@
                 </thead>
                 <tbody>
                     {% for t in trades %}
-                    <tr>
+                    <tr class="hover:bg-base-200/50 transition-colors">
                         <td class="opacity-50">{{ forloop.counter }}</td>
                         <td>
                             <span class="badge badge-sm {% if t.side == 'BUY' %}badge-success{% else %}badge-error{% endif %}">
@@ -280,6 +324,360 @@ document.addEventListener('DOMContentLoaded', function() {
     {% endif %}
 
     {% if run.status == 'completed' %}
+    // ── Price Chart ──────────────────────────────────────────────────────
+    const priceEl = document.getElementById('price-chart');
+    const tradeMarkers = {{ trade_markers_json|safe }};
+    const availableTimeframes = {{ available_timeframes_json|safe }};
+    const defaultIndicators = {{ chart_indicators_json|safe }};
+
+    // Populate timeframe selector
+    const tfSelect = document.getElementById('chart-timeframe');
+    const tfLabels = {
+        '1-MINUTE-LAST-EXTERNAL': '1m',
+        '5-MINUTE-LAST-EXTERNAL': '5m',
+        '15-MINUTE-LAST-EXTERNAL': '15m',
+        '60-MINUTE-LAST-EXTERNAL': '1h',
+        '240-MINUTE-LAST-EXTERNAL': '4h',
+        '1-DAY-LAST-EXTERNAL': '1D',
+    };
+    availableTimeframes.forEach((tf, i) => {
+        const opt = document.createElement('option');
+        opt.value = tf;
+        opt.textContent = tfLabels[tf] || tf.split('-').slice(0, 2).join('');
+        // Default to 5m if available, otherwise first
+        if (tf === '5-MINUTE-LAST-EXTERNAL') opt.selected = true;
+        tfSelect.appendChild(opt);
+    });
+    if (!tfSelect.value) tfSelect.selectedIndex = 0;
+
+    // Chart state
+    let priceChart = null;
+    let mainSeries = null;
+    let activeIndicators = []; // [{id, name, period, series, paneChart?, paneEl?}]
+    let currentBars = [];
+    const overlayColors = ['#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#10b981', '#f97316'];
+    let colorIdx = 0;
+
+    function nextColor() {
+        const c = overlayColors[colorIdx % overlayColors.length];
+        colorIdx++;
+        return c;
+    }
+
+    function chartOptions(el) {
+        return {
+            layout: {
+                background: { type: 'solid', color: 'transparent' },
+                textColor: '#a6adbb',
+            },
+            grid: {
+                vertLines: { color: 'rgba(255,255,255,0.05)' },
+                horzLines: { color: 'rgba(255,255,255,0.05)' },
+            },
+            timeScale: { timeVisible: true },
+            rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+            crosshair: { mode: 0 },
+        };
+    }
+
+    function createPriceChart() {
+        if (priceChart) priceChart.remove();
+        priceEl.innerHTML = '';
+        priceChart = LightweightCharts.createChart(priceEl, {
+            ...chartOptions(priceEl),
+            width: priceEl.clientWidth,
+            height: 400,
+        });
+        new ResizeObserver(() => {
+            priceChart.applyOptions({ width: priceEl.clientWidth });
+        }).observe(priceEl);
+        return priceChart;
+    }
+
+    function setChartType(type, data) {
+        if (mainSeries) {
+            priceChart.removeSeries(mainSeries);
+            mainSeries = null;
+        }
+        if (type === 'candlestick') {
+            mainSeries = priceChart.addCandlestickSeries({
+                upColor: '#36d399',
+                downColor: '#f87272',
+                borderUpColor: '#36d399',
+                borderDownColor: '#f87272',
+                wickUpColor: '#36d399',
+                wickDownColor: '#f87272',
+            });
+            mainSeries.setData(data);
+        } else if (type === 'line') {
+            mainSeries = priceChart.addLineSeries({
+                color: '#36d399',
+                lineWidth: 2,
+            });
+            mainSeries.setData(data.map(d => ({ time: d.time, value: d.close })));
+        } else if (type === 'area') {
+            mainSeries = priceChart.addAreaSeries({
+                lineColor: '#36d399',
+                topColor: 'rgba(54, 211, 153, 0.3)',
+                bottomColor: 'rgba(54, 211, 153, 0.0)',
+                lineWidth: 2,
+            });
+            mainSeries.setData(data.map(d => ({ time: d.time, value: d.close })));
+        }
+        addTradeMarkers();
+    }
+
+    function addTradeMarkers() {
+        if (!mainSeries || !tradeMarkers.length) return;
+        const markers = tradeMarkers
+            .map(m => {
+                if (m.type === 'entry') {
+                    return {
+                        time: m.time,
+                        position: m.side === 'BUY' ? 'belowBar' : 'aboveBar',
+                        color: m.side === 'BUY' ? '#36d399' : '#f87272',
+                        shape: m.side === 'BUY' ? 'arrowUp' : 'arrowDown',
+                        text: m.side === 'BUY' ? 'B' : 'S',
+                    };
+                }
+                return {
+                    time: m.time,
+                    position: m.pnl >= 0 ? 'aboveBar' : 'belowBar',
+                    color: m.pnl >= 0 ? '#36d399' : '#f87272',
+                    shape: 'circle',
+                    text: '$' + m.pnl,
+                };
+            })
+            .sort((a, b) => a.time - b.time);
+        mainSeries.setMarkers(markers);
+    }
+
+    async function loadBars(timeframe) {
+        const url = '{% url "dashboard:api_bars" run.pk %}' + (timeframe ? '?timeframe=' + encodeURIComponent(timeframe) : '');
+        const resp = await fetch(url);
+        if (!resp.ok) {
+            priceEl.innerHTML = '<p class="text-center opacity-50 py-12">Data file not found &mdash; cannot render price chart</p>';
+            return null;
+        }
+        return await resp.json();
+    }
+
+    async function loadIndicator(name, period, timeframe) {
+        let url = '{% url "dashboard:api_indicators" run.pk %}?name=' + name + '&period=' + period;
+        if (timeframe) url += '&timeframe=' + encodeURIComponent(timeframe);
+        const resp = await fetch(url);
+        if (!resp.ok) return null;
+        return await resp.json();
+    }
+
+    // Indicator pane management
+    const BELOW_PANE_INDICATORS = new Set(['rsi', 'macd', 'atr']);
+
+    function addIndicatorChip(ind) {
+        const chips = document.getElementById('indicator-chips');
+        chips.style.display = 'flex';
+        const chip = document.createElement('span');
+        chip.className = 'badge badge-sm gap-1';
+        chip.style.backgroundColor = ind.color || '#666';
+        chip.style.color = '#fff';
+        chip.dataset.indId = ind.id;
+        chip.innerHTML = `${ind.name.toUpperCase()}(${ind.period}) <button class="btn btn-ghost btn-xs px-0">&times;</button>`;
+        chip.querySelector('button').addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeIndicator(ind.id);
+        });
+        chips.appendChild(chip);
+    }
+
+    function removeIndicator(id) {
+        const idx = activeIndicators.findIndex(i => i.id === id);
+        if (idx === -1) return;
+        const ind = activeIndicators[idx];
+        if (ind.paneChart) {
+            ind.paneChart.remove();
+            ind.paneEl.remove();
+        } else if (ind.series && priceChart) {
+            priceChart.removeSeries(ind.series);
+        }
+        activeIndicators.splice(idx, 1);
+        const chip = document.querySelector(`[data-ind-id="${id}"]`);
+        if (chip) chip.remove();
+        const chips = document.getElementById('indicator-chips');
+        if (!activeIndicators.length) chips.style.display = 'none';
+    }
+
+    async function addIndicator(name, period) {
+        const tf = tfSelect.value;
+        const data = await loadIndicator(name, period, tf);
+        if (!data) return;
+
+        const id = name + '_' + period + '_' + Date.now();
+        const color = nextColor();
+        const ind = { id, name, period, color, series: null, paneChart: null, paneEl: null };
+
+        if (BELOW_PANE_INDICATORS.has(name)) {
+            // Create separate pane
+            const paneContainer = document.getElementById('indicator-panes');
+            const paneEl = document.createElement('div');
+            paneEl.style.height = name === 'macd' ? '150px' : '120px';
+            paneEl.className = 'mt-2';
+            paneContainer.appendChild(paneEl);
+            ind.paneEl = paneEl;
+
+            const paneChart = LightweightCharts.createChart(paneEl, {
+                ...chartOptions(paneEl),
+                width: paneEl.clientWidth,
+                height: parseInt(paneEl.style.height),
+            });
+            ind.paneChart = paneChart;
+
+            new ResizeObserver(() => {
+                paneChart.applyOptions({ width: paneEl.clientWidth });
+            }).observe(paneEl);
+
+            if (name === 'macd') {
+                // MACD has 3 series
+                const macdSeries = paneChart.addLineSeries({ color: '#06b6d4', lineWidth: 1, title: 'MACD' });
+                macdSeries.setData(data.macd || []);
+                const signalSeries = paneChart.addLineSeries({ color: '#f59e0b', lineWidth: 1, title: 'Signal' });
+                signalSeries.setData(data.signal || []);
+                const histSeries = paneChart.addHistogramSeries({ title: 'Histogram' });
+                histSeries.setData((data.histogram || []).map(d => ({
+                    time: d.time,
+                    value: d.value,
+                    color: d.value >= 0 ? 'rgba(54,211,153,0.6)' : 'rgba(248,114,114,0.6)',
+                })));
+                ind.series = macdSeries;
+            } else if (name === 'rsi') {
+                const rsiSeries = paneChart.addLineSeries({ color, lineWidth: 1, title: 'RSI' });
+                rsiSeries.setData(data);
+                // Overbought/oversold lines
+                const ob = paneChart.addLineSeries({ color: 'rgba(255,255,255,0.15)', lineWidth: 1, lineStyle: 2 });
+                const os = paneChart.addLineSeries({ color: 'rgba(255,255,255,0.15)', lineWidth: 1, lineStyle: 2 });
+                if (data.length > 1) {
+                    ob.setData([{ time: data[0].time, value: 70 }, { time: data[data.length-1].time, value: 70 }]);
+                    os.setData([{ time: data[0].time, value: 30 }, { time: data[data.length-1].time, value: 30 }]);
+                }
+                ind.series = rsiSeries;
+            } else {
+                const s = paneChart.addLineSeries({ color, lineWidth: 1, title: name.toUpperCase() });
+                s.setData(data);
+                ind.series = s;
+            }
+
+            paneChart.timeScale().fitContent();
+
+            // Sync time scales
+            if (priceChart) {
+                priceChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                    if (range) paneChart.timeScale().setVisibleLogicalRange(range);
+                });
+                paneChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                    if (range) priceChart.timeScale().setVisibleLogicalRange(range);
+                });
+            }
+        } else {
+            // Overlay on main chart
+            const s = priceChart.addLineSeries({
+                color,
+                lineWidth: 1,
+                title: `${name.toUpperCase()}(${period})`,
+            });
+            s.setData(data);
+            ind.series = s;
+        }
+
+        activeIndicators.push(ind);
+        addIndicatorChip(ind);
+    }
+
+    function showChartLoading() {
+        priceEl.style.opacity = '0.4';
+        priceEl.style.pointerEvents = 'none';
+    }
+    function hideChartLoading() {
+        priceEl.style.opacity = '1';
+        priceEl.style.pointerEvents = '';
+    }
+
+    // Initialize price chart
+    async function initPriceChart() {
+        showChartLoading();
+        const tf = tfSelect.value;
+        const data = await loadBars(tf);
+        hideChartLoading();
+        if (!data) return;
+        currentBars = data;
+
+        createPriceChart();
+        const chartType = document.getElementById('chart-type').value;
+        setChartType(chartType, data);
+        priceChart.timeScale().fitContent();
+
+        // Remove old indicators
+        activeIndicators.forEach(ind => {
+            if (ind.paneChart) { ind.paneChart.remove(); ind.paneEl.remove(); }
+        });
+        activeIndicators = [];
+        document.getElementById('indicator-chips').innerHTML = '';
+        document.getElementById('indicator-panes').innerHTML = '';
+        colorIdx = 0;
+
+        // Load default indicators from strategy
+        for (const def of defaultIndicators) {
+            await addIndicator(def.name, def.period);
+        }
+    }
+
+    initPriceChart();
+
+    // Timeframe change
+    tfSelect.addEventListener('change', () => initPriceChart());
+
+    // Chart type change
+    document.getElementById('chart-type').addEventListener('change', (e) => {
+        if (currentBars.length) {
+            setChartType(e.target.value, currentBars);
+        }
+    });
+
+    // Add indicator from dropdown
+    document.querySelectorAll('[data-ind]').forEach(el => {
+        el.addEventListener('click', (e) => {
+            e.preventDefault();
+            const name = el.dataset.ind;
+            const period = parseInt(el.dataset.period);
+            addIndicator(name, period);
+            // Close dropdown
+            document.activeElement.blur();
+        });
+    });
+
+    // Click-to-jump: trade table rows -> chart
+    document.querySelectorAll('table tbody tr').forEach((row, idx) => {
+        const tradeIdx = idx; // matches trade order
+        if (tradeIdx >= tradeMarkers.length) return;
+        // Find entry marker for this trade (every 2 markers = 1 trade)
+        const entryMarker = tradeMarkers[tradeIdx * 2];
+        if (!entryMarker) return;
+
+        row.style.cursor = 'pointer';
+        row.title = 'Click to jump to this trade on the chart';
+        row.addEventListener('click', () => {
+            if (!priceChart) return;
+            // Scroll chart into viewport first
+            priceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Center chart on trade time (1h window around entry)
+            const fromTime = entryMarker.time - 3600;
+            const toTime = entryMarker.time + 3600;
+            priceChart.timeScale().setVisibleRange({ from: fromTime, to: toTime });
+
+            // Flash highlight on the row
+            row.classList.add('bg-primary/20');
+            setTimeout(() => row.classList.remove('bg-primary/20'), 1500);
+        });
+    });
+
     // Equity Curve
     const equityEl = document.getElementById('equity-chart');
     if (equityEl) {

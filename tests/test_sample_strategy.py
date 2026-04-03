@@ -9,6 +9,18 @@ from pyfx.backtest.runner import run_backtest
 from pyfx.core.types import BacktestConfig
 
 
+def test_sma_chart_indicators():
+    """chart_indicators() returns SMA defaults matching the strategy."""
+    from pyfx.strategies.sample_sma import SMACrossStrategy
+
+    indicators = SMACrossStrategy.chart_indicators()
+    assert len(indicators) == 2
+    names = [i["name"] for i in indicators]
+    assert names == ["sma", "sma"]
+    assert indicators[0]["period"] == 10
+    assert indicators[1]["period"] == 50
+
+
 def test_sample_sma_backtest():
     """Run the SMA crossover strategy on synthetic data and verify it completes."""
     rng = np.random.default_rng(42)

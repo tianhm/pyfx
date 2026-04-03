@@ -1,5 +1,6 @@
 """Tests for strategy discovery and loading."""
 
+from pyfx.strategies.base import PyfxStrategy
 from pyfx.strategies.loader import _camel_to_snake, discover_strategies
 
 
@@ -8,6 +9,11 @@ def test_camel_to_snake():
     assert _camel_to_snake("MyStrategy") == "my_strategy"
     assert _camel_to_snake("Strategy") == "strategy"
     assert _camel_to_snake("RSITrendStrategy") == "rsi_trend_strategy"
+
+
+def test_base_chart_indicators_default():
+    """Base PyfxStrategy.chart_indicators() returns empty list."""
+    assert PyfxStrategy.chart_indicators() == []
 
 
 def test_discover_entry_point_strategies():
