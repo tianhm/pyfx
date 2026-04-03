@@ -94,6 +94,44 @@ def backtest_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("dashboard:backtest_detail", pk=pk)
 
 
+def backtest_rerun(request: HttpRequest, pk: int) -> HttpResponse:
+    """Clone an existing backtest run and re-execute it."""
+    original = get_object_or_404(BacktestRun, pk=pk)
+    if request.method != "POST":
+        return redirect("dashboard:backtest_detail", pk=pk)
+
+    run = BacktestRun.objects.create(
+        strategy=original.strategy,
+        instrument=original.instrument,
+        start=original.start,
+        end=original.end,
+        bar_type=original.bar_type,
+        extra_bar_types=original.extra_bar_types,
+        trade_size=original.trade_size,
+        balance=original.balance,
+        leverage=original.leverage,
+        strategy_params=original.strategy_params,
+        status=BacktestRun.STATUS_RUNNING,
+        data_file=original.data_file,
+    )
+
+    cmd = [
+        sys.executable, "-m", "django", "run_backtest_web",
+        "--run-id", str(run.pk),
+    ]
+    subprocess.Popen(  # noqa: S603
+        cmd,
+        env={
+            **__import__("os").environ,
+            "DJANGO_SETTINGS_MODULE": "pyfx.web.pyfx_web.settings",
+        },
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    return redirect("dashboard:backtest_list")
+
+
 def backtest_new(request: HttpRequest) -> HttpResponse:
     return render(request, "dashboard/backtest_new.html", {
         "active_nav": "backtests",

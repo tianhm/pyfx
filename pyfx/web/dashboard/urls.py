@@ -11,6 +11,7 @@ urlpatterns = [
     path("backtests/start/", views.backtest_start, name="backtest_start"),
     path("run/<int:pk>/", views.backtest_detail, name="backtest_detail"),
     path("run/<int:pk>/delete/", views.backtest_delete, name="backtest_delete"),
+    path("run/<int:pk>/rerun/", views.backtest_rerun, name="backtest_rerun"),
     path("api/strategies/", views.api_strategies, name="api_strategies"),
     path("api/run/<int:pk>/status/", views.api_backtest_status, name="api_backtest_status"),
     path("api/run/<int:pk>/equity/", views.api_equity_curve, name="api_equity_curve"),
