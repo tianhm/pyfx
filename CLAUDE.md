@@ -28,6 +28,8 @@ pyfx/
     base.py                  # PyfxStrategy base class (wraps NautilusTrader Strategy)
     loader.py                # Strategy discovery via entry points + directory scanning
     sample_sma.py            # SMA crossover demo strategy
+  data/
+    dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet
   backtest/
     runner.py                # NautilusTrader BacktestEngine integration
   adapters/                  # (future) live broker adapters
@@ -37,6 +39,7 @@ pyfx/
 tests/
   test_loader.py             # Strategy discovery tests
   test_sample_strategy.py    # SMA backtest smoke test
+  test_ingest.py             # Dukascopy CSV ingestion tests
 ```
 
 ## Commands
@@ -45,6 +48,7 @@ tests/
 pyfx backtest -s <strategy> --start <date> --end <date> --data-file <path>  # Run a backtest
 pyfx strategies                                                              # List available strategies
 pyfx generate-sample-data                                                    # Create synthetic test data
+pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
 pyfx web                                                                     # Start Django dashboard
 ```
 
@@ -93,10 +97,10 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 ## Development
 
 ```bash
-pip install -e ".[all]"                    # Install with all extras (web + dev)
-ruff check pyfx/                           # Lint
-mypy pyfx/                                 # Type check
-pytest --cov=pyfx tests/                   # Tests with coverage
+uv sync --all-extras                       # Install with all extras (web + dev + data)
+uv run ruff check pyfx/                    # Lint
+uv run mypy pyfx/                          # Type check
+uv run pytest --cov=pyfx tests/            # Tests with coverage
 ```
 
 ### Coverage target: 100%
@@ -122,6 +126,9 @@ All new code must include tests. No exceptions.
 - **Strategy discovery**: checks BOTH entry points AND `PYFX_STRATEGIES_DIR` — strategies from either source are available
 - **`.travis.yml` is outdated** — targets Python 2.7 from the old codebase. Ignore it.
 - **`README.rst` is outdated** — still references OANDA, TA-Lib, old architecture. CLAUDE.md is the dev reference.
+- **NautilusTrader RSI range**: `RelativeStrengthIndex.value` returns 0.0–1.0 (not 0–100). Strategy thresholds must use 0.30/0.70 not 30/70
+- **Dukascopy data download**: `duka` Python package is broken; use `npx dukascopy-node` instead. Dukascopy may block certain IPs — use VPN if timeouts occur
+- **Package manager**: use `uv` (not `pip`) for all package management
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
 
 ## Security

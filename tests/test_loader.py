@@ -4,9 +4,10 @@ from pyfx.strategies.loader import discover_strategies, _camel_to_snake
 
 
 def test_camel_to_snake():
-    assert _camel_to_snake("SMACrossStrategy") == "s_m_a_cross_strategy"
+    assert _camel_to_snake("SMACrossStrategy") == "sma_cross_strategy"
     assert _camel_to_snake("MyStrategy") == "my_strategy"
     assert _camel_to_snake("Strategy") == "strategy"
+    assert _camel_to_snake("RSITrendStrategy") == "rsi_trend_strategy"
 
 
 def test_discover_entry_point_strategies():

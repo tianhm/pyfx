@@ -63,13 +63,14 @@ def _load_directory_strategies(directory: Path) -> dict[str, type[PyfxStrategy]]
 
 
 def _camel_to_snake(name: str) -> str:
-    """Convert CamelCase to snake_case."""
-    result: list[str] = []
-    for i, char in enumerate(name):
-        if char.isupper() and i > 0:
-            result.append("_")
-        result.append(char.lower())
-    return "".join(result)
+    """Convert CamelCase to snake_case, handling acronyms like RSI or EMA."""
+    import re
+
+    # Insert underscore between a lowercase/digit and an uppercase letter
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    # Insert underscore between consecutive uppercase letters followed by lowercase
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", s)
+    return s.lower()
 
 
 def discover_strategies(extra_dir: Path | None = None) -> dict[str, type[PyfxStrategy]]:
