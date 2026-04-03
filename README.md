@@ -39,6 +39,27 @@ uv run pyfx strategies
 uv run pyfx web
 ```
 
+## Web Dashboard
+
+The `pyfx web` command auto-migrates the database and starts a Django dev server:
+
+```bash
+uv run pyfx web                              # http://127.0.0.1:8000/
+uv run pyfx web --host 0.0.0.0 --port 9000   # custom host/port
+```
+
+Requires the web extra (`uv sync --extra web`).
+
+### Django Management Commands
+
+There is no `manage.py`. To run Django commands directly (e.g. `createsuperuser`, `shell`, `showmigrations`):
+
+```bash
+DJANGO_SETTINGS_MODULE=pyfx.web.pyfx_web.settings uv run django-admin <command>
+```
+
+The database is SQLite at `~/.pyfx/db.sqlite3` (configurable via `PYFX_DB_PATH`).
+
 ## Configuration
 
 All settings use the `PYFX_` prefix and can be set via environment variables or a `.env` file.
