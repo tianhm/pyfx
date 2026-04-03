@@ -4,6 +4,15 @@ from django.db import models
 class BacktestRun(models.Model):
     """A single backtest execution and its summary metrics."""
 
+    STATUS_RUNNING = "running"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, "Running"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     # Config
@@ -16,6 +25,13 @@ class BacktestRun(models.Model):
     balance = models.FloatField(default=100_000)
     leverage = models.FloatField(default=50)
     strategy_params = models.JSONField(default=dict, blank=True)
+
+    # Execution state
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_COMPLETED
+    )
+    error_message = models.TextField(blank=True, default="")
+    data_file = models.CharField(max_length=500, blank=True, default="")
 
     # Results
     total_pnl = models.FloatField(default=0)

@@ -34,9 +34,14 @@ pyfx/
   web/
     pyfx_web/settings.py     # Django settings
     dashboard/               # Django app: models, views, URLs, migrations
+      management/commands/
+        run_backtest.py      # CLI management command to run + save backtest
+        run_backtest_web.py  # Subprocess command for web-triggered backtests
 tests/
+  conftest.py                # pytest-django configuration
   test_loader.py             # Strategy discovery tests
   test_sample_strategy.py    # SMA backtest smoke test
+  test_web.py                # Django dashboard views, APIs, management commands
 ```
 
 ## Commands
@@ -118,7 +123,9 @@ All new code must include tests. No exceptions.
 - **NautilusTrader bar types**: must match format `step-aggregation-price_type-source` (e.g., `1-MINUTE-LAST-EXTERNAL`)
 - **Data files**: must have OHLCV columns (`open`, `high`, `low`, `close`, `volume`) with a DatetimeIndex
 - **Timezone handling**: bar data index must be UTC. `_load_data()` auto-localizes naive timestamps
-- **Django dashboard**: uses SQLite at `~/.pyfx/db.sqlite3`, auto-migrates on `pyfx web` startup
+- **Django dashboard**: uses SQLite at `~/.pyfx/db.sqlite3`, auto-migrates on `pyfx web` startup. Sidebar layout with DaisyUI drawer. Overview at `/`, backtests at `/backtests/`. Web-triggered backtests run via `run_backtest_web` management command in a subprocess.
+- **Strategy config classes**: extend NautilusTrader's `StrategyConfig` (msgspec.Struct), NOT Pydantic. Use `__struct_fields__` and `msgspec.structs.fields()` for introspection, not `model_fields`.
+- **pytest-django**: required for web tests. Configure via `DJANGO_SETTINGS_MODULE` in `pyproject.toml` `[tool.pytest.ini_options]`.
 - **Strategy discovery**: checks BOTH entry points AND `PYFX_STRATEGIES_DIR` — strategies from either source are available
 - **`.travis.yml` is outdated** — targets Python 2.7 from the old codebase. Ignore it.
 - **`README.rst` is outdated** — still references OANDA, TA-Lib, old architecture. CLAUDE.md is the dev reference.
