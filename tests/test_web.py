@@ -1380,3 +1380,85 @@ class RunDownloadWebCommandTests(TestCase):
         ds.refresh_from_db()
         assert ds.status == Dataset.STATUS_ERROR
         assert "Unknown instrument" in ds.error_message
+
+
+class CliWebCommandTests(TestCase):
+    """Tests for `pyfx web` and `pyfx manage` CLI commands."""
+
+    @patch("pyfx.cli.click.echo")
+    @patch("pyfx.data.scanner.scan_data_directory", return_value=(0, 0))
+    @patch("django.core.management.call_command")
+    @patch("django.core.management.execute_from_command_line")
+    def test_web_default_enables_reload(
+        self, mock_exec: MagicMock, _cc: MagicMock, _scan: MagicMock, _echo: MagicMock,
+    ) -> None:
+        from click.testing import CliRunner
+
+        from pyfx.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["web"])
+
+        assert result.exit_code == 0
+        mock_exec.assert_called_once()
+        argv = mock_exec.call_args[0][0]
+        assert "--noreload" not in argv
+        assert "127.0.0.1:8000" in argv[2]
+
+    @patch("pyfx.cli.click.echo")
+    @patch("pyfx.data.scanner.scan_data_directory", return_value=(0, 0))
+    @patch("django.core.management.call_command")
+    @patch("django.core.management.execute_from_command_line")
+    def test_web_no_reload_flag(
+        self, mock_exec: MagicMock, _cc: MagicMock, _scan: MagicMock, _echo: MagicMock,
+    ) -> None:
+        from click.testing import CliRunner
+
+        from pyfx.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["web", "--no-reload"])
+
+        assert result.exit_code == 0
+        argv = mock_exec.call_args[0][0]
+        assert "--noreload" in argv
+
+    @patch("pyfx.data.scanner.scan_data_directory", return_value=(3, 2))
+    @patch("django.core.management.call_command")
+    @patch("django.core.management.execute_from_command_line")
+    def test_web_shows_registered_datasets(
+        self, _exec: MagicMock, _cc: MagicMock, _scan: MagicMock,
+    ) -> None:
+        from click.testing import CliRunner
+
+        from pyfx.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["web"])
+
+        assert result.exit_code == 0
+        assert "Registered 3 new dataset(s)" in result.output
+
+    @patch("django.core.management.execute_from_command_line")
+    def test_manage_passes_args(self, mock_exec: MagicMock) -> None:
+        from click.testing import CliRunner
+
+        from pyfx.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["manage", "migrate", "--run-syncdb"])
+
+        assert result.exit_code == 0
+        mock_exec.assert_called_once_with(["pyfx", "migrate", "--run-syncdb"])
+
+    @patch("django.core.management.execute_from_command_line")
+    def test_manage_no_args(self, mock_exec: MagicMock) -> None:
+        from click.testing import CliRunner
+
+        from pyfx.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["manage"])
+
+        assert result.exit_code == 0
+        mock_exec.assert_called_once_with(["pyfx"])
