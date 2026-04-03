@@ -34,6 +34,11 @@ class BacktestRun(models.Model):
     error_message = models.TextField(blank=True, default="")
     data_file = models.CharField(max_length=500, blank=True, default="")
 
+    # Progress tracking
+    progress_pct = models.IntegerField(default=0)
+    progress_message = models.CharField(max_length=200, blank=True, default="")
+    total_bars = models.IntegerField(default=0)
+
     # Results
     total_pnl = models.FloatField(default=0)
     total_return_pct = models.FloatField(default=0)

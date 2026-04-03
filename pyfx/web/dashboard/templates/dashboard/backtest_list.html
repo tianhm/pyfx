@@ -1,6 +1,39 @@
 {% extends "dashboard/base.html" %}
 {% block title %}pyfx - Backtests{% endblock %}
 
+{% block extra_head %}
+<style>
+    @keyframes shimmer {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+    .progress-bar-fill {
+        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .shimmer-active::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+        animation: shimmer 1.8s infinite;
+    }
+    .running-card {
+        animation: fadeIn 0.3s ease-out;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+    }
+    .pulse-dot {
+        animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="flex justify-between items-center mb-6">
     <div>
@@ -15,12 +48,8 @@
     </button>
 </div>
 
-{% if running_count > 0 %}
-<div class="alert alert-info mb-4 py-2">
-    <span class="loading loading-spinner loading-sm"></span>
-    <span class="text-sm">{{ running_count }} backtest{{ running_count|pluralize }} running&hellip;</span>
-</div>
-{% endif %}
+<!-- Running Backtests (populated by JS) -->
+<div id="running-backtests" class="space-y-3 mb-6"></div>
 
 {% if runs %}
 <div class="card bg-base-100 shadow">
@@ -244,19 +273,183 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Starting&hellip;';
     });
 
-    // Poll for running backtests
-    {% if running_count > 0 %}
-    const pollInterval = setInterval(function() {
-        fetch('{% url "dashboard:api_running_count" %}')
+    // ── Running backtests live progress ──
+    const container = document.getElementById('running-backtests');
+    let knownRunIds = new Set();
+    let elapsedTimerHandle = null;
+
+    function formatElapsed(seconds) {
+        if (seconds < 60) return seconds.toFixed(1) + 's';
+        const m = Math.floor(seconds / 60);
+        const s = (seconds % 60).toFixed(0);
+        return m + 'm ' + s.padStart(2, '0') + 's';
+    }
+
+    function formatBars(n) {
+        if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+        if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+        return n.toString();
+    }
+
+    function buildCard(bt) {
+        const card = document.createElement('div');
+        card.className = 'running-card card bg-base-100 border border-primary/20 shadow-lg';
+        card.id = 'running-card-' + bt.id;
+        card.setAttribute('data-created-at', bt.created_at);
+
+        const isEnginePhase = bt.progress_pct >= 20 && bt.progress_pct < 90;
+        const pct = bt.progress_pct;
+
+        card.innerHTML =
+            '<div class="card-body p-4 gap-3">' +
+                '<!-- Header -->' +
+                '<div class="flex items-center justify-between">' +
+                    '<div class="flex items-center gap-2 min-w-0">' +
+                        '<span class="inline-block w-2 h-2 rounded-full bg-primary pulse-dot shrink-0"></span>' +
+                        '<span class="badge badge-primary badge-sm font-mono"></span>' +
+                        '<span class="text-base-content/40">&middot;</span>' +
+                        '<span class="text-sm font-medium truncate"></span>' +
+                    '</div>' +
+                    '<span class="text-xs text-base-content/40 whitespace-nowrap"></span>' +
+                '</div>' +
+                '<!-- Progress -->' +
+                '<div class="flex items-center gap-3">' +
+                    '<div class="flex-1 relative">' +
+                        '<div class="w-full bg-base-300 rounded-full h-2 overflow-hidden">' +
+                            '<div class="progress-bar-fill h-full rounded-full bg-primary relative overflow-hidden" style="width:' + pct + '%">' +
+                                (isEnginePhase ? '<div class="shimmer-active absolute inset-0"></div>' : '') +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<span class="text-xs font-mono text-primary w-8 text-right">' + pct + '%</span>' +
+                '</div>' +
+                '<!-- Footer -->' +
+                '<div class="flex items-center justify-between text-xs text-base-content/50">' +
+                    '<div class="flex items-center gap-3">' +
+                        '<span class="progress-msg"></span>' +
+                        (bt.total_bars > 0
+                            ? '<span class="flex items-center gap-1">' +
+                                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2"><path d="M3 3v18h18" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 16l4-8 4 4 4-8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+                                '<span>' + formatBars(bt.total_bars) + ' bars</span>' +
+                              '</span>'
+                            : '') +
+                    '</div>' +
+                    '<span class="flex items-center gap-1">' +
+                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' +
+                        '<span class="elapsed-time">0.0s</span>' +
+                    '</span>' +
+                '</div>' +
+            '</div>';
+
+        // Set text content safely (XSS prevention)
+        const badge = card.querySelector('.badge');
+        badge.textContent = bt.strategy;
+        const instrument = card.querySelectorAll('.flex.items-center.gap-2 span')[3];
+        instrument.textContent = bt.instrument;
+        const dateRange = card.querySelector('.flex.items-center.justify-between > span:last-child');
+        dateRange.textContent = bt.start + ' \u2192 ' + bt.end;
+        const msgEl = card.querySelector('.progress-msg');
+        msgEl.textContent = bt.progress_message;
+
+        return card;
+    }
+
+    function updateCard(card, bt) {
+        const pct = bt.progress_pct;
+        const isEnginePhase = pct >= 20 && pct < 90;
+        const fill = card.querySelector('.progress-bar-fill');
+        fill.style.width = pct + '%';
+
+        // Toggle shimmer
+        const existingShimmer = fill.querySelector('.shimmer-active');
+        if (isEnginePhase && !existingShimmer) {
+            const shimDiv = document.createElement('div');
+            shimDiv.className = 'shimmer-active absolute inset-0';
+            fill.appendChild(shimDiv);
+        } else if (!isEnginePhase && existingShimmer) {
+            existingShimmer.remove();
+        }
+
+        // Update percentage
+        const pctEl = card.querySelector('.text-xs.font-mono.text-primary');
+        pctEl.textContent = pct + '%';
+
+        // Update message
+        const msgEl = card.querySelector('.progress-msg');
+        msgEl.textContent = bt.progress_message;
+
+        // Update bars if newly available
+        if (bt.total_bars > 0) {
+            const barsArea = card.querySelector('.flex.items-center.gap-3');
+            if (!barsArea.querySelector('svg')) {
+                const span = document.createElement('span');
+                span.className = 'flex items-center gap-1';
+                span.innerHTML =
+                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2"><path d="M3 3v18h18" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 16l4-8 4 4 4-8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+                    '<span>' + formatBars(bt.total_bars) + ' bars</span>';
+                barsArea.appendChild(span);
+            }
+        }
+    }
+
+    function updateElapsedTimes() {
+        const now = Date.now();
+        container.querySelectorAll('[data-created-at]').forEach(card => {
+            const created = new Date(card.getAttribute('data-created-at')).getTime();
+            const elapsed = (now - created) / 1000;
+            const el = card.querySelector('.elapsed-time');
+            if (el) el.textContent = formatElapsed(elapsed);
+        });
+    }
+
+    function pollRunning() {
+        fetch('{% url "dashboard:api_running_backtests" %}')
             .then(r => r.json())
             .then(data => {
-                if (data.running === 0) {
-                    clearInterval(pollInterval);
-                    window.location.reload();
+                const currentIds = new Set(data.map(bt => bt.id));
+
+                // If a previously known run is gone, it finished - reload
+                for (const oldId of knownRunIds) {
+                    if (!currentIds.has(oldId)) {
+                        window.location.reload();
+                        return;
+                    }
                 }
-            });
-    }, 3000);
-    {% endif %}
+
+                // Update or create cards
+                data.forEach(bt => {
+                    const existing = document.getElementById('running-card-' + bt.id);
+                    if (existing) {
+                        updateCard(existing, bt);
+                    } else {
+                        container.appendChild(buildCard(bt));
+                    }
+                });
+
+                // Remove cards for runs no longer in the response
+                container.querySelectorAll('[id^="running-card-"]').forEach(card => {
+                    const cardId = parseInt(card.id.replace('running-card-', ''));
+                    if (!currentIds.has(cardId)) {
+                        card.remove();
+                    }
+                });
+
+                knownRunIds = currentIds;
+
+                // Manage elapsed timer
+                if (data.length > 0 && !elapsedTimerHandle) {
+                    elapsedTimerHandle = setInterval(updateElapsedTimes, 1000);
+                } else if (data.length === 0 && elapsedTimerHandle) {
+                    clearInterval(elapsedTimerHandle);
+                    elapsedTimerHandle = null;
+                }
+            })
+            .catch(() => {});  // Silently retry on network error
+    }
+
+    // Start polling
+    pollRunning();
+    setInterval(pollRunning, 2000);
 });
 </script>
 {% endblock %}
