@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from django.test import Client, TestCase
 
 from pyfx.web.dashboard.models import BacktestRun, EquitySnapshot, Trade
@@ -556,6 +558,14 @@ class ModelTests(TestCase):
         run = _create_run()
         fresh = BacktestRun.objects.get(pk=run.pk)
         assert fresh.status == "completed"
+
+    def test_win_rate_pct_property(self):
+        run = _create_run(win_rate=0.65)
+        assert run.win_rate_pct == pytest.approx(65.0)
+
+    def test_win_rate_pct_zero(self):
+        run = _create_run(win_rate=0.0)
+        assert run.win_rate_pct == pytest.approx(0.0)
 
     def test_cascade_delete(self):
         run = _create_run()

@@ -108,7 +108,7 @@
                         {{ run.total_return_pct|floatformat:2 }}%
                     </td>
                     <td data-val="{{ run.num_trades }}" class="text-right text-sm">{{ run.num_trades }}</td>
-                    <td data-val="{{ run.win_rate }}" class="text-right text-sm">{{ run.win_rate|floatformat:1 }}%</td>
+                    <td data-val="{{ run.win_rate_pct }}" class="text-right text-sm">{{ run.win_rate_pct|floatformat:1 }}%</td>
                     <td data-val="{{ run.max_drawdown_pct }}" class="text-right text-sm text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
                     <td data-val="{{ run.duration_seconds }}" class="text-right text-sm opacity-70">{{ run.duration_seconds|floatformat:1 }}s</td>
                 </tr>

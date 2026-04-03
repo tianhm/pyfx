@@ -93,11 +93,42 @@ class CobanExperimentalConfig(PyfxStrategyConfig, frozen=True):
     trade_size: Decimal = Decimal("100000")
 
 
+_VALID_ENTRY_MODES = frozenset({
+    "full", "relaxed", "2of3", "no_h2", "sma_macd", "rsi_level", "trend_follow",
+})
+_VALID_EXIT_MODES = frozenset({"fixed", "trailing", "atr"})
+
+
 class CobanExperimentalStrategy(PyfxStrategy):
     """Experimental multi-timeframe strategy with configurable entry/exit modes."""
 
     def __init__(self, config: CobanExperimentalConfig) -> None:
         super().__init__(config)
+
+        # Validate config
+        if config.entry_mode not in _VALID_ENTRY_MODES:
+            raise ValueError(
+                f"Unknown entry_mode '{config.entry_mode}'. "
+                f"Valid: {sorted(_VALID_ENTRY_MODES)}"
+            )
+        if config.exit_mode not in _VALID_EXIT_MODES:
+            raise ValueError(
+                f"Unknown exit_mode '{config.exit_mode}'. "
+                f"Valid: {sorted(_VALID_EXIT_MODES)}"
+            )
+        if config.take_profit_pips <= 0:
+            raise ValueError("take_profit_pips must be positive")
+        if config.stop_loss_pips <= 0:
+            raise ValueError("stop_loss_pips must be positive")
+        if config.atr_tp_multiplier <= 0:
+            raise ValueError("atr_tp_multiplier must be positive")
+        if config.atr_sl_multiplier <= 0:
+            raise ValueError("atr_sl_multiplier must be positive")
+        if config.session_start_hour >= config.session_end_hour:
+            raise ValueError(
+                f"session_start_hour ({config.session_start_hour}) must be "
+                f"< session_end_hour ({config.session_end_hour})"
+            )
 
         self._m1_bt: BarType | None = None
         self._h1_bt: BarType | None = None
@@ -207,11 +238,15 @@ class CobanExperimentalStrategy(PyfxStrategy):
             self._on_m1_bar(bar)
 
     def on_order_filled(self, event: OrderFilled) -> None:
-        self._entry_price = float(event.last_px)
-        self._best_price = self._entry_price
-        # Capture ATR at entry for ATR-based exits
-        if self._h1_atr.initialized:
-            self._entry_atr = self._h1_atr.value
+        # Only set entry state when opening a new position, not on close fills
+        if self._trade_direction == 0:
+            return
+        if not self.flat():
+            # We just opened a position — set entry tracking state
+            self._entry_price = float(event.last_px)
+            self._best_price = self._entry_price
+            if self._h1_atr.initialized:
+                self._entry_atr = self._h1_atr.value
 
     # -- H1 handler ----------------------------------------------------------
 
@@ -360,16 +395,8 @@ class CobanExperimentalStrategy(PyfxStrategy):
         return 0
 
     def _entry_full(self, ts: int, cfg: CobanExperimentalConfig) -> int:
-        """Original: all H1 signals + H2 + (no M1 here, but strict H1)."""
-        if self._h1_complete_ts == _ZERO_TS:
-            return 0
-        if not _is_fresh(self._h1_complete_ts, ts, cfg.max_signal_window_seconds):
-            return 0
-        if not _is_fresh(self._h2_rsi_break_ts, ts, cfg.max_signal_window_seconds):
-            return 0
-        if self._h2_rsi_break_dir != self._h1_complete_dir:
-            return 0
-        return self._h1_complete_dir
+        """Alias for relaxed — experimental drops M1/double-confirm from CobanReborn."""
+        return self._entry_relaxed(ts, cfg)
 
     def _entry_relaxed(self, ts: int, cfg: CobanExperimentalConfig) -> int:
         """H1 3-signal + H2 RSI, no M1 or double-confirm."""
@@ -498,7 +525,7 @@ class CobanExperimentalStrategy(PyfxStrategy):
         """Fixed TP/SL exit using bar high/low."""
         spread = self._spread_cost
         tp_distance = cfg.take_profit_pips * self._pip_size - spread
-        sl_distance = cfg.stop_loss_pips * self._pip_size - spread
+        sl_distance = cfg.stop_loss_pips * self._pip_size + spread
 
         if self._trade_direction == 1:
             # Long: TP hit if high reaches target, SL hit if low drops to stop
@@ -527,7 +554,7 @@ class CobanExperimentalStrategy(PyfxStrategy):
     ) -> bool:
         """Trailing stop exit using bar high/low."""
         trail_distance = cfg.trailing_stop_pips * self._pip_size
-        sl_distance = cfg.stop_loss_pips * self._pip_size - self._spread_cost
+        sl_distance = cfg.stop_loss_pips * self._pip_size + self._spread_cost
 
         if self._trade_direction == 1:
             # Update best price from high
@@ -561,8 +588,9 @@ class CobanExperimentalStrategy(PyfxStrategy):
         if self._entry_atr <= 0.0:
             return self._exit_fixed(high, low, cfg)  # fallback
 
-        tp_distance = self._entry_atr * cfg.atr_tp_multiplier
-        sl_distance = self._entry_atr * cfg.atr_sl_multiplier
+        spread = self._spread_cost
+        tp_distance = self._entry_atr * cfg.atr_tp_multiplier - spread
+        sl_distance = self._entry_atr * cfg.atr_sl_multiplier + spread
 
         if self._trade_direction == 1:
             if (high - self._entry_price) >= tp_distance:

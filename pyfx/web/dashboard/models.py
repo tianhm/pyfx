@@ -51,6 +51,11 @@ class BacktestRun(models.Model):
     profit_factor = models.FloatField(null=True, blank=True)
     duration_seconds = models.FloatField(default=0)
 
+    @property
+    def win_rate_pct(self) -> float:
+        """Win rate as a percentage (0-100) for display."""
+        return float(self.win_rate * 100)
+
     class Meta:
         ordering = ["-created_at"]
 

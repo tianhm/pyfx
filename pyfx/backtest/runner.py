@@ -51,6 +51,42 @@ def _parse_nautilus_money(value) -> float:
     return float(parts[0]) if parts else 0.0
 
 
+def _parse_nautilus_money_currency(value: object) -> tuple[float, str]:
+    """Parse NautilusTrader money strings, returning (amount, currency).
+
+    Examples:
+        '-56.40 USD' -> (-56.40, 'USD')
+        '914703.00 JPY' -> (914703.00, 'JPY')
+    """
+    s = str(value)
+    parts = s.split()
+    if len(parts) >= 2:  # noqa: PLR2004
+        return float(parts[0]), parts[1]
+    return (float(parts[0]) if parts else 0.0), "USD"
+
+
+def _convert_pnl_to_usd(
+    pnl: float,
+    currency: str,
+    close_price: float,
+    instrument_str: str,
+) -> float:
+    """Convert P&L from quote currency to USD if needed.
+
+    For pairs where quote is USD (e.g. EUR/USD, XAU/USD), P&L is already in USD.
+    For pairs where quote is not USD (e.g. USD/JPY), divide by the close price.
+    """
+    if currency == "USD" or pnl == 0.0:
+        return pnl
+
+    # Quote currency is not USD — convert using the close price.
+    # For USD/JPY: pnl_jpy / close_price_usdjpy = pnl_usd
+    if close_price <= 0.0:
+        return pnl  # can't convert, return raw value
+
+    return pnl / close_price
+
+
 _AGGREGATION_FREQ: dict[str, str] = {
     "SECOND": "s",
     "MINUTE": "min",
@@ -294,13 +330,23 @@ def _extract_results(
     equity_curve: list[EquityPoint] = []
 
     if num_trades > 0:
-        pnl_values = positions_report["realized_pnl"].apply(_parse_nautilus_money)
-        total_pnl = float(pnl_values.sum())
-        wins = pnl_values[pnl_values > 0]
-        losses = pnl_values[pnl_values < 0]
+        # Convert P&L to USD for non-USD-quote pairs (e.g. USD/JPY reports in JPY)
+        pnl_usd_values: list[float] = []
+        for _, row in positions_report.iterrows():
+            raw_pnl, currency = _parse_nautilus_money_currency(row["realized_pnl"])
+            close_px = _parse_nautilus_money(row.get("avg_px_close", "0"))
+            pnl_usd = _convert_pnl_to_usd(
+                raw_pnl, currency, close_px, config.instrument,
+            )
+            pnl_usd_values.append(pnl_usd)
+
+        pnl_series = pd.Series(pnl_usd_values)
+        total_pnl = float(pnl_series.sum())
+        wins = pnl_series[pnl_series > 0]
+        losses = pnl_series[pnl_series < 0]
         win_rate = float(len(wins) / num_trades)
         total_return_pct = (total_pnl / config.balance) * 100
-        avg_trade_pnl = float(pnl_values.mean())
+        avg_trade_pnl = float(pnl_series.mean())
         avg_win = float(wins.mean()) if len(wins) > 0 else 0.0
         avg_loss = float(losses.mean()) if len(losses) > 0 else 0.0
 
@@ -310,8 +356,10 @@ def _extract_results(
             profit_factor = gross_wins / gross_losses
 
         # Extract individual trades
+        trade_idx = 0
         for _, row in positions_report.iterrows():
-            pnl = _parse_nautilus_money(row["realized_pnl"])
+            pnl = pnl_usd_values[trade_idx]
+            trade_idx += 1
             return_pct = _parse_nautilus_money(row.get("realized_return", "0"))
 
             opened_at = _to_utc_datetime(row.get("ts_opened", 0))
