@@ -10,9 +10,9 @@ class PyfxSettings(BaseSettings):
     model_config = {"env_prefix": "PYFX_", "env_file": ".env", "extra": "ignore"}
 
     # Data
-    data_dir: Path = Field(default=Path.home() / ".pyfx" / "data", description="Local data cache")
+    data_dir: Path = Field(default=Path("data"), description="Local data cache (project-relative)")
     catalog_dir: Path = Field(
-        default=Path.home() / ".pyfx" / "catalog",
+        default=Path("data") / "catalog",
         description="NautilusTrader Parquet catalog",
     )
 
@@ -28,8 +28,8 @@ class PyfxSettings(BaseSettings):
 
     # Django
     db_path: Path = Field(
-        default=Path.home() / ".pyfx" / "db.sqlite3",
-        description="SQLite database path",
+        default=Path("data") / "db.sqlite3",
+        description="SQLite database path (project-relative)",
     )
     secret_key: str = Field(
         default="pyfx-dev-secret-change-in-production",

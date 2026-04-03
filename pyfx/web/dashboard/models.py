@@ -1,6 +1,66 @@
 from django.db import models
 
 
+class Dataset(models.Model):
+    """A tracked OHLCV dataset (Parquet file) with metadata."""
+
+    SOURCE_DUKASCOPY = "dukascopy"
+    SOURCE_MANUAL = "manual"
+    SOURCE_GENERATED = "generated"
+    SOURCE_CHOICES = [
+        (SOURCE_DUKASCOPY, "Dukascopy"),
+        (SOURCE_MANUAL, "Manual"),
+        (SOURCE_GENERATED, "Generated"),
+    ]
+
+    STATUS_DOWNLOADING = "downloading"
+    STATUS_INGESTING = "ingesting"
+    STATUS_READY = "ready"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_DOWNLOADING, "Downloading"),
+        (STATUS_INGESTING, "Ingesting"),
+        (STATUS_READY, "Ready"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    instrument = models.CharField(max_length=50)
+    timeframe = models.CharField(max_length=20, default="M1")
+    start_date = models.DateField()
+    end_date = models.DateField()
+    file_path = models.CharField(max_length=500, unique=True)
+    file_size_bytes = models.BigIntegerField(default=0)
+    row_count = models.BigIntegerField(default=0)
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_MANUAL)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DOWNLOADING)
+    progress_pct = models.IntegerField(default=0)
+    progress_message = models.CharField(max_length=200, blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["instrument", "timeframe", "start_date", "end_date"],
+                name="unique_dataset_identity",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.instrument} {self.timeframe} {self.start_date} to {self.end_date}"
+
+    @property
+    def display_size(self) -> str:
+        """Human-readable file size."""
+        if self.file_size_bytes >= 1_000_000:
+            return f"{self.file_size_bytes / 1_000_000:.1f} MB"
+        if self.file_size_bytes >= 1_000:
+            return f"{self.file_size_bytes / 1_000:.1f} KB"
+        return f"{self.file_size_bytes} B"
+
+
 class BacktestRun(models.Model):
     """A single backtest execution and its summary metrics."""
 

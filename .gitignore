@@ -15,5 +15,6 @@ build/
 /.idea
 /.coverage
 /.cache
+/data/
 /.htmlcov
 nohup.out

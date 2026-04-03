@@ -41,8 +41,12 @@
 
                     <div class="form-control">
                         <label class="label py-1"><span class="label-text font-medium">Data File</span></label>
-                        <input type="text" name="data_file" placeholder="~/.pyfx/data/EURUSD_365d_M1.parquet" class="input input-bordered w-full font-mono text-sm" required />
-                        <label class="label py-0"><span class="label-text-alt opacity-40">CSV or Parquet with OHLCV data</span></label>
+                        <select id="dataset-select" class="select select-bordered w-full" onchange="onDatasetSelect(this)">
+                            <option value="" disabled selected>Loading datasets&hellip;</option>
+                        </select>
+                        <input type="hidden" name="data_file" id="data-file-input" required />
+                        <input type="text" id="custom-path-input" placeholder="Enter custom file path" class="input input-bordered w-full font-mono text-sm mt-2 hidden" />
+                        <label class="label py-0"><span class="label-text-alt opacity-40">Select a dataset or enter a custom path</span></label>
                     </div>
                 </div>
             </div>
@@ -108,6 +112,48 @@ document.addEventListener('DOMContentLoaded', function() {
     const ENUM_OPTIONS = {
         entry_mode: ['full', 'relaxed', '2of3', 'no_h2', 'sma_macd', 'rsi_level', 'trend_follow'],
         exit_mode: ['fixed', 'trailing', 'atr'],
+    };
+
+    // ── Load datasets for data file dropdown ──
+    const datasetSelect = document.getElementById('dataset-select');
+    const dataFileInput = document.getElementById('data-file-input');
+    const customPathInput = document.getElementById('custom-path-input');
+
+    fetch('{% url "dashboard:api_datasets" %}')
+        .then(r => r.json())
+        .then(data => {
+            datasetSelect.innerHTML = '<option value="" disabled selected>Select a dataset</option>';
+            data.forEach(ds => {
+                const opt = document.createElement('option');
+                opt.value = ds.file_path;
+                opt.textContent = ds.instrument + ' ' + ds.timeframe + ' (' + ds.start_date + ' to ' + ds.end_date + ') - ' + ds.display_size;
+                datasetSelect.appendChild(opt);
+            });
+            const customOpt = document.createElement('option');
+            customOpt.value = '__custom__';
+            customOpt.textContent = 'Custom path\u2026';
+            datasetSelect.appendChild(customOpt);
+
+            if (data.length === 0) {
+                datasetSelect.innerHTML = '<option value="__custom__" selected>No datasets - enter path manually</option>';
+                customPathInput.classList.remove('hidden');
+                customPathInput.required = true;
+            }
+        });
+
+    window.onDatasetSelect = function(sel) {
+        if (sel.value === '__custom__') {
+            customPathInput.classList.remove('hidden');
+            customPathInput.required = true;
+            dataFileInput.value = '';
+            customPathInput.addEventListener('input', function() {
+                dataFileInput.value = this.value;
+            });
+        } else {
+            customPathInput.classList.add('hidden');
+            customPathInput.required = false;
+            dataFileInput.value = sel.value;
+        }
     };
 
     fetch('{% url "dashboard:api_strategies" %}')
