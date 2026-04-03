@@ -17,8 +17,8 @@ class RSITrendConfig(PyfxStrategyConfig, frozen=True):
 
     rsi_period: int = 14
     ema_period: int = 50
-    rsi_oversold: float = 30.0
-    rsi_overbought: float = 70.0
+    rsi_oversold: float = 0.30
+    rsi_overbought: float = 0.70
     trade_size: Decimal = Decimal("100000")
 
 
@@ -34,7 +34,7 @@ class RSITrendStrategy(PyfxStrategy):
         super().__init__(config)
         self.rsi = RelativeStrengthIndex(config.rsi_period)
         self.ema = ExponentialMovingAverage(config.ema_period)
-        self._prev_rsi: float = 50.0
+        self._prev_rsi: float = 0.50
 
     def on_start(self) -> None:
         self.register_indicator_for_bars(self.config.bar_type, self.rsi)

@@ -28,6 +28,8 @@ pyfx/
     base.py                  # PyfxStrategy base class (wraps NautilusTrader Strategy)
     loader.py                # Strategy discovery via entry points + directory scanning
     sample_sma.py            # SMA crossover demo strategy
+  data/
+    dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet
   backtest/
     runner.py                # NautilusTrader BacktestEngine integration
   adapters/                  # (future) live broker adapters
@@ -41,6 +43,7 @@ tests/
   conftest.py                # pytest-django configuration
   test_loader.py             # Strategy discovery tests
   test_sample_strategy.py    # SMA backtest smoke test
+  test_ingest.py             # Dukascopy CSV ingestion tests
   test_web.py                # Django dashboard views, APIs, management commands
 ```
 
@@ -50,6 +53,7 @@ tests/
 uv run pyfx backtest -s <strategy> --start <date> --end <date> --data-file <path>  # Run a backtest
 uv run pyfx strategies                                                              # List available strategies
 uv run pyfx generate-sample-data                                                    # Create synthetic test data
+uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
 uv run pyfx web                                                                     # Start Django dashboard
 ```
 
@@ -98,7 +102,7 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 ## Development
 
 ```bash
-uv sync --all-extras                       # Install with all extras (web + dev)
+uv sync --all-extras                       # Install with all extras (web + dev + data)
 uv run ruff check pyfx/                    # Lint
 uv run mypy pyfx/                          # Type check
 uv run pytest --cov=pyfx tests/            # Tests with coverage
@@ -127,6 +131,9 @@ All new code must include tests. No exceptions.
 - **Strategy config classes**: extend NautilusTrader's `StrategyConfig` (msgspec.Struct), NOT Pydantic. Use `__struct_fields__` and `msgspec.structs.fields()` for introspection, not `model_fields`.
 - **pytest-django**: required for web tests. Configure via `DJANGO_SETTINGS_MODULE` in `pyproject.toml` `[tool.pytest.ini_options]`.
 - **Strategy discovery**: checks BOTH entry points AND `PYFX_STRATEGIES_DIR` — strategies from either source are available
+- **NautilusTrader RSI range**: `RelativeStrengthIndex.value` returns 0.0–1.0 (not 0–100). Strategy thresholds must use 0.30/0.70 not 30/70
+- **Dukascopy data download**: `duka` Python package is broken; use `npx dukascopy-node` instead. Dukascopy may block certain IPs — use VPN if timeouts occur
+- **Package manager**: use `uv` (not `pip`) for all package management
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
 
 ## Security

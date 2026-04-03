@@ -152,6 +152,30 @@ def generate_sample_data(instrument: str, days: int, output: Path | None) -> Non
     click.echo(f"Saved to: {output}")
 
 
+@main.command("ingest")
+@click.option(
+    "--input", "-i", "input_path",
+    required=True, type=click.Path(exists=True, path_type=Path),
+    help="Path to Dukascopy CSV file",
+)
+@click.option(
+    "--output", "-o", "output_path",
+    type=click.Path(path_type=Path), default=None,
+    help="Output Parquet path (default: same name with .parquet)",
+)
+def ingest(input_path: Path, output_path: Path | None) -> None:
+    """Ingest a Dukascopy CSV file into Parquet format."""
+    from pyfx.data.dukascopy import ingest_to_parquet, read_dukascopy_csv
+
+    click.echo(f"Reading: {input_path}")
+    df = read_dukascopy_csv(input_path)
+    click.echo(f"  Rows:  {len(df):,}")
+    click.echo(f"  Range: {df.index[0]} to {df.index[-1]}")
+
+    out = ingest_to_parquet(input_path, output_path)
+    click.echo(f"Saved:   {out}")
+
+
 @main.command("web")
 @click.option("--host", default="127.0.0.1", help="Host to bind")
 @click.option("--port", default=8000, help="Port to bind")

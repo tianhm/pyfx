@@ -17,6 +17,7 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.wranglers import BarDataWrangler
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
+from pyfx.core.config import settings
 from pyfx.core.types import BacktestConfig, BacktestResult, EquityPoint, TradeRecord
 from pyfx.strategies.loader import get_strategy
 
@@ -98,7 +99,7 @@ def run_backtest(
     engine.add_instrument(instrument)
     engine.add_data(bars)
 
-    strategy_cls = get_strategy(config.strategy)
+    strategy_cls = get_strategy(config.strategy, settings.strategies_dir)
     config_cls = _find_config_class(strategy_cls)
     strategy_config = config_cls(
         instrument_id=instrument.id,
