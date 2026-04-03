@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -1228,6 +1228,44 @@ class ApiRunningDownloadsViewTests(TestCase):
         assert "progress_message" in ds
 
 
+class MonthRangesTests(TestCase):
+    def test_single_month(self):
+        from datetime import date
+
+        from pyfx.web.dashboard.management.commands.run_download_web import (
+            _month_ranges,
+        )
+
+        chunks = _month_ranges(date(2025, 3, 1), date(2025, 3, 31))
+        assert len(chunks) == 1
+        assert chunks[0] == (date(2025, 3, 1), date(2025, 3, 31))
+
+    def test_multi_month(self):
+        from datetime import date
+
+        from pyfx.web.dashboard.management.commands.run_download_web import (
+            _month_ranges,
+        )
+
+        chunks = _month_ranges(date(2025, 1, 15), date(2025, 3, 10))
+        assert len(chunks) == 3
+        assert chunks[0] == (date(2025, 1, 15), date(2025, 1, 31))
+        assert chunks[1] == (date(2025, 2, 1), date(2025, 2, 28))
+        assert chunks[2] == (date(2025, 3, 1), date(2025, 3, 10))
+
+    def test_cross_year(self):
+        from datetime import date
+
+        from pyfx.web.dashboard.management.commands.run_download_web import (
+            _month_ranges,
+        )
+
+        chunks = _month_ranges(date(2025, 12, 1), date(2026, 1, 31))
+        assert len(chunks) == 2
+        assert chunks[0] == (date(2025, 12, 1), date(2025, 12, 31))
+        assert chunks[1] == (date(2026, 1, 1), date(2026, 1, 31))
+
+
 class RunDownloadWebCommandTests(TestCase):
     def test_missing_dataset_id(self):
         from io import StringIO
@@ -1238,57 +1276,53 @@ class RunDownloadWebCommandTests(TestCase):
         call_command("run_download_web", dataset_id=99999, stderr=err)
         assert "not found" in err.getvalue()
 
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.CHUNK_DELAY_SECONDS", 0)
     @patch("pyfx.web.dashboard.management.commands.run_download_web.subprocess.run")
-    @patch("pyfx.data.dukascopy.ingest_to_parquet")
     @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.tempfile.mkdtemp")
     def test_successful_download(
-        self, mock_which, mock_ingest, mock_subprocess_run,
+        self, mock_mkdtemp, mock_which, mock_subprocess_run, tmp_path=None,
     ):
-        import pandas as pd
+        import tempfile
 
+
+        # Set up a real temp dir so rglob finds CSVs
+        real_tmp = Path(tempfile.mkdtemp())
+        mock_mkdtemp.return_value = str(real_tmp)
         mock_which.return_value = "/usr/local/bin/npx"
 
         ds = _create_dataset(
             instrument="GBP/USD",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 2, 28),
             status=Dataset.STATUS_DOWNLOADING,
-            file_path="/tmp/test_dl.parquet",
+            file_path=str(real_tmp / "test_dl.parquet"),
         )
 
-        # Mock ingest_to_parquet to create the output file
-        mock_ingest.return_value = Path("/tmp/test_dl.parquet")
+        # Create fake CSV files that subprocess.run would produce
+        def create_chunk_csv(*args, **kwargs):
+            cmd = args[0]
+            chunk_dir = Path(cmd[-1])  # -dir argument
+            chunk_dir.mkdir(parents=True, exist_ok=True)
+            csv = chunk_dir / "data.csv"
+            csv.write_text(
+                "timestamp,open,high,low,close,volume\n"
+                "1735689600000,1.25,1.26,1.24,1.255,100\n"
+                "1735689660000,1.255,1.26,1.25,1.258,200\n"
+            )
 
-        # Mock the rglob to find CSV
-        mock_csv_path = MagicMock()
-        mock_csv_stat = MagicMock()
-        mock_csv_stat.st_mtime = 1000
-        mock_csv_path.stat.return_value = mock_csv_stat
-
-        # Mock pandas read_parquet for metadata
-        mock_df = MagicMock()
-        mock_df.__len__ = MagicMock(return_value=100_000)
-        mock_df.empty = False
-        mock_df.index.min.return_value = pd.Timestamp("2025-01-01", tz="UTC")
-        mock_df.index.max.return_value = pd.Timestamp("2025-12-31", tz="UTC")
-
-        from pathlib import Path as RealPath
+        mock_subprocess_run.side_effect = create_chunk_csv
 
         from django.core.management import call_command
 
-        with (
-            patch.object(
-                RealPath, "rglob", return_value=[mock_csv_path],
-            ),
-            patch.object(RealPath, "mkdir"),
-            patch.object(RealPath, "stat") as mock_stat,
-            patch("pandas.read_parquet", return_value=mock_df),
-        ):
-            mock_stat.return_value.st_size = 5_000_000
-            call_command("run_download_web", dataset_id=ds.pk)
+        call_command("run_download_web", dataset_id=ds.pk)
 
         ds.refresh_from_db()
         assert ds.status == Dataset.STATUS_READY
         assert ds.progress_pct == 100
-        assert ds.row_count == 100_000
+        assert ds.row_count == 2  # Deduped across 2 identical chunks
+        # Temp dir should be cleaned up
+        assert not real_tmp.exists()
 
     @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
     def test_npx_not_found(self, mock_which):
@@ -1306,50 +1340,64 @@ class RunDownloadWebCommandTests(TestCase):
         assert ds.status == Dataset.STATUS_ERROR
         assert "npx not found" in ds.error_message
 
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.CHUNK_DELAY_SECONDS", 0)
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.RETRY_DELAY_SECONDS", 0)
     @patch("pyfx.web.dashboard.management.commands.run_download_web.subprocess.run")
     @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
-    def test_download_failure(self, mock_which, mock_subprocess_run):
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.tempfile.mkdtemp")
+    def test_download_failure_after_retries(
+        self, mock_mkdtemp, mock_which, mock_subprocess_run,
+    ):
         import subprocess as sp
+        import tempfile
 
+        real_tmp = Path(tempfile.mkdtemp())
+        mock_mkdtemp.return_value = str(real_tmp)
         mock_which.return_value = "/usr/local/bin/npx"
         mock_subprocess_run.side_effect = sp.CalledProcessError(1, "npx")
 
         ds = _create_dataset(
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 1, 31),
             status=Dataset.STATUS_DOWNLOADING,
             file_path="/tmp/fail_dl.parquet",
         )
 
-        from pathlib import Path as RealPath
-
         from django.core.management import call_command
 
-        with patch.object(RealPath, "mkdir"):
-            call_command("run_download_web", dataset_id=ds.pk)
+        call_command("run_download_web", dataset_id=ds.pk)
 
         ds.refresh_from_db()
         assert ds.status == Dataset.STATUS_ERROR
         assert ds.progress_message == "Failed"
+        # Should have retried (MAX_RETRIES=2 calls per chunk)
+        assert mock_subprocess_run.call_count == 2
 
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.CHUNK_DELAY_SECONDS", 0)
     @patch("pyfx.web.dashboard.management.commands.run_download_web.subprocess.run")
     @patch("pyfx.web.dashboard.management.commands.run_download_web.shutil.which")
-    def test_no_csv_found(self, mock_which, mock_subprocess_run):
+    @patch("pyfx.web.dashboard.management.commands.run_download_web.tempfile.mkdtemp")
+    def test_no_csv_found(
+        self, mock_mkdtemp, mock_which, mock_subprocess_run,
+    ):
+        import tempfile
+
+        real_tmp = Path(tempfile.mkdtemp())
+        mock_mkdtemp.return_value = str(real_tmp)
         mock_which.return_value = "/usr/local/bin/npx"
+        # subprocess succeeds but produces no CSV files
 
         ds = _create_dataset(
             instrument="AUD/USD",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 1, 31),
             status=Dataset.STATUS_DOWNLOADING,
             file_path="/tmp/nocsv.parquet",
         )
 
-        from pathlib import Path as RealPath
-
         from django.core.management import call_command
 
-        with (
-            patch.object(RealPath, "rglob", return_value=[]),
-            patch.object(RealPath, "mkdir"),
-        ):
-            call_command("run_download_web", dataset_id=ds.pk)
+        call_command("run_download_web", dataset_id=ds.pk)
 
         ds.refresh_from_db()
         assert ds.status == Dataset.STATUS_ERROR
