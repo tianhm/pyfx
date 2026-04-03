@@ -109,6 +109,14 @@
         </div>
     </div>
 
+    <script>
+    document.querySelectorAll('time[datetime]').forEach(function(el) {
+        var d = new Date(el.getAttribute('datetime'));
+        if (!isNaN(d)) {
+            el.textContent = d.toLocaleString(undefined, JSON.parse(el.dataset.fmt || '{}'));
+        }
+    });
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>
