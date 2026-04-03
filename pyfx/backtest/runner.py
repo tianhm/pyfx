@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pandas as pd
 from nautilus_trader.backtest.engine import BacktestEngine
+from nautilus_trader.backtest.models import MakerTakerFeeModel
 from nautilus_trader.config import BacktestEngineConfig, LoggingConfig
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import BarType
@@ -133,6 +134,7 @@ def run_backtest(
         starting_balances=[Money(config.balance, USD)],
         base_currency=USD,
         default_leverage=Decimal(str(config.leverage)),
+        fee_model=MakerTakerFeeModel(),
     )
 
     engine.add_instrument(instrument)
