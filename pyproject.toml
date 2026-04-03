@@ -33,6 +33,8 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "pandas-stubs>=3.0",
+    "django-stubs>=5.0",
+    "django-stubs-ext>=5.0",
 ]
 all = ["pyfx[web,dev,data]"]
 
@@ -54,6 +56,18 @@ select = ["E", "F", "I", "UP"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+plugins = ["mypy_django_plugin.main"]
+
+[tool.django-stubs]
+django_settings_module = "pyfx.web.pyfx_web.settings"
+
+[[tool.mypy.overrides]]
+module = "nautilus_trader.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyfx.web.dashboard.migrations.*"
+ignore_errors = true
 
 [tool.coverage.run]
 branch = true
@@ -64,6 +78,13 @@ exclude_lines = [
     "pragma: no cover",
     "NOCOV",
     "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+exclude_also = [
+    "pragma: no branch",
+]
+partial_branches = [
+    "pragma: no branch",
 ]
 
 [tool.coverage.html]

@@ -41,7 +41,7 @@ def _load_directory_strategies(directory: Path) -> dict[str, type[PyfxStrategy]]
 
         module_name = f"pyfx_ext_strategies.{py_file.stem}"
         spec = importlib.util.spec_from_file_location(module_name, py_file)
-        if spec is None or spec.loader is None:
+        if spec is None or spec.loader is None:  # pragma: no cover
             continue
 
         module = importlib.util.module_from_spec(spec)

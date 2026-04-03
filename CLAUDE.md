@@ -140,6 +140,8 @@ All new code must include tests. No exceptions.
 - **Data files**: must have OHLCV columns (`open`, `high`, `low`, `close`, `volume`) with a DatetimeIndex
 - **Timezone handling**: bar data index must be UTC. `_load_data()` auto-localizes naive timestamps
 - **Django dashboard**: uses SQLite at `~/.pyfx/db.sqlite3`, auto-migrates on `pyfx web` startup. Sidebar layout with DaisyUI drawer. Overview at `/`, backtests at `/backtests/`. Web-triggered backtests run via `run_backtest_web` management command in a subprocess.
+- **Django setup in CLI**: use `_setup_django()` from `pyfx/cli.py` instead of inline `os.environ.setdefault(...); django.setup()`. The helper is idempotent.
+- **mypy + Django stubs**: `django-stubs` is configured via `mypy_django_plugin.main` in `pyproject.toml`. NautilusTrader has no stubs — its imports use `ignore_missing_imports` in mypy overrides. Migrations are excluded from mypy checking.
 - **Strategy config classes**: extend NautilusTrader's `StrategyConfig` (msgspec.Struct), NOT Pydantic. Use `__struct_fields__` and `msgspec.structs.fields()` for introspection, not `model_fields`.
 - **pytest-django**: required for web tests. Configure via `DJANGO_SETTINGS_MODULE` in `pyproject.toml` `[tool.pytest.ini_options]`.
 - **Strategy discovery**: checks BOTH entry points AND `PYFX_STRATEGIES_DIR` — strategies from either source are available

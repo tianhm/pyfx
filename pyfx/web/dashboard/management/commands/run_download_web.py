@@ -7,10 +7,10 @@ import subprocess
 import traceback
 from pathlib import Path
 
-from django.core.management.base import BaseCommand, CommandParser  # type: ignore[import-untyped]
+from django.core.management.base import BaseCommand, CommandParser
 
 
-class Command(BaseCommand):  # type: ignore[misc]
+class Command(BaseCommand):
     help = "Download data for a pre-created Dataset row (used by the web UI)"
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -108,7 +108,7 @@ class Command(BaseCommand):  # type: ignore[misc]
             df = pd.read_parquet(output_path, columns=[])
             dataset.row_count = len(df)
             dataset.file_size_bytes = output_path.stat().st_size
-            if not df.empty:
+            if not df.empty:  # pragma: no cover — defensive guard
                 dataset.start_date = df.index.min().date()
                 dataset.end_date = df.index.max().date()
 

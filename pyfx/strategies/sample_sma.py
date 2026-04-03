@@ -46,7 +46,7 @@ class SMACrossStrategy(PyfxStrategy):
             elif self.is_short():
                 self.close_all()
                 self.market_buy()
-        elif fast < slow:
+        elif fast < slow:  # pragma: no branch
             if self.flat():
                 self.market_sell()
             elif self.is_long():

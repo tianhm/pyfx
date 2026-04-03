@@ -2,13 +2,31 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import click
 
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from pyfx.core.types import BacktestResult
+
 from pyfx.core.config import settings
+
+_DJANGO_SETTINGS_MODULE = "pyfx.web.pyfx_web.settings"
+
+
+def _setup_django() -> None:
+    """Configure and initialise Django (idempotent)."""
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", _DJANGO_SETTINGS_MODULE)
+
+    import django
+
+    django.setup()
 
 
 @click.group()
@@ -194,13 +212,7 @@ def ingest(input_path: Path, output_path: Path | None) -> None:
 @click.option("--no-reload", is_flag=True, default=False, help="Disable auto-reload")
 def web(host: str, port: int, no_reload: bool) -> None:
     """Start the Django dashboard."""
-    import os
-
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
-
-    import django
-
-    django.setup()
+    _setup_django()
 
     from django.core.management import call_command, execute_from_command_line
 
@@ -225,13 +237,7 @@ def web(host: str, port: int, no_reload: bool) -> None:
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 def manage(args: tuple[str, ...]) -> None:
     """Run Django management commands (e.g. pyfx manage migrate)."""
-    import os
-
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
-
-    import django
-
-    django.setup()
+    _setup_django()
 
     from django.core.management import execute_from_command_line
 
@@ -246,13 +252,7 @@ def data() -> None:
 @data.command("list")
 def data_list() -> None:
     """List available datasets."""
-    import os
-
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
-
-    import django
-
-    django.setup()
+    _setup_django()
 
     from pyfx.web.dashboard.models import Dataset
 
@@ -280,13 +280,7 @@ def data_list() -> None:
 @data.command("scan")
 def data_scan() -> None:
     """Scan data directory and register untracked Parquet files."""
-    import os
-
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
-
-    import django
-
-    django.setup()
+    _setup_django()
 
     from django.core.management import call_command
 
@@ -298,8 +292,9 @@ def data_scan() -> None:
     click.echo(f"Registered {registered} new dataset(s), {already_tracked} already tracked.")
 
 
-def _parse_params(params: tuple[str, ...]) -> dict:
-    result: dict = {}
+def _parse_params(params: tuple[str, ...]) -> dict[str, int | float | str]:
+    """Parse ``key=value`` CLI params, coercing to int, float, or str."""
+    result: dict[str, int | float | str] = {}
     for p in params:
         key, _, value = p.partition("=")
         try:
@@ -312,7 +307,15 @@ def _parse_params(params: tuple[str, ...]) -> dict:
     return result
 
 
-def _load_data(data_file: Path | None, start: datetime, end: datetime):
+def _load_data(
+    data_file: Path | None,
+    start: datetime,
+    end: datetime,
+) -> pd.DataFrame:
+    """Load bar data from CSV or Parquet, filter to the date range.
+
+    Exits with code 1 if no data file is given or the filtered data is empty.
+    """
     import pandas as pd
 
     if data_file is None:
@@ -325,8 +328,9 @@ def _load_data(data_file: Path | None, start: datetime, end: datetime):
     else:
         bars_df = pd.read_csv(data_file, index_col=0, parse_dates=True)
 
-    if bars_df.index.tz is None:
-        bars_df.index = bars_df.index.tz_localize("UTC")
+    idx = cast("pd.DatetimeIndex", bars_df.index)
+    if idx.tz is None:
+        bars_df.index = idx.tz_localize("UTC")
 
     # Make start/end tz-aware to match the data index
     if start.tzinfo is None:
@@ -334,7 +338,7 @@ def _load_data(data_file: Path | None, start: datetime, end: datetime):
     if end.tzinfo is None:
         end = end.replace(tzinfo=UTC)
 
-    bars_df = bars_df.loc[start:end]
+    bars_df = bars_df.loc[start:end]  # type: ignore[misc]
 
     if bars_df.empty:
         click.echo("Error: no data in the specified date range")
@@ -343,30 +347,29 @@ def _load_data(data_file: Path | None, start: datetime, end: datetime):
     return bars_df
 
 
-def _save_to_django(result) -> None:
+def _save_to_django(result: BacktestResult) -> None:
     """Save backtest result to Django database."""
-    import os
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
-
-    import django
-    django.setup()
+    _setup_django()
 
     from django.core.management import call_command
+
     call_command("migrate", "--run-syncdb", verbosity=0)
 
     from pyfx.web.dashboard.models import BacktestRun, EquitySnapshot, Trade
 
     # Ensure tz-aware datetimes for Django
-    if result.config.start.tzinfo is None:
-        result.config.start = result.config.start.replace(tzinfo=UTC)
-    if result.config.end.tzinfo is None:
-        result.config.end = result.config.end.replace(tzinfo=UTC)
+    cfg_start = result.config.start
+    cfg_end = result.config.end
+    if cfg_start.tzinfo is None:
+        cfg_start = cfg_start.replace(tzinfo=UTC)
+    if cfg_end.tzinfo is None:
+        cfg_end = cfg_end.replace(tzinfo=UTC)
 
     run = BacktestRun.objects.create(
         strategy=result.config.strategy,
         instrument=result.config.instrument,
-        start=result.config.start,
-        end=result.config.end,
+        start=cfg_start,
+        end=cfg_end,
         bar_type=result.config.bar_type,
         extra_bar_types=result.config.extra_bar_types,
         trade_size=float(result.config.trade_size),

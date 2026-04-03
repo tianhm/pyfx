@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import pandas as pd
 from nautilus_trader.backtest.engine import BacktestEngine
@@ -24,16 +25,21 @@ from pyfx.core.types import BacktestConfig, BacktestResult, EquityPoint, TradeRe
 from pyfx.strategies.loader import get_strategy
 
 
-def _to_utc_datetime(value) -> datetime:
-    """Convert various timestamp formats to a UTC datetime."""
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value
+def _to_utc_datetime(value: object) -> datetime:
+    """Convert various timestamp formats to a UTC datetime.
+
+    Handles ``pd.Timestamp``, ``datetime``, numeric epoch values
+    (seconds, microseconds, or nanoseconds), and string representations.
+    """
+    # Check pd.Timestamp first — it's a datetime subclass so must precede
     if isinstance(value, pd.Timestamp):
         if value.tzinfo is None:
             return value.tz_localize("UTC").to_pydatetime()
         return value.to_pydatetime()
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
     if isinstance(value, (int, float)):
         if value > 1e15:  # nanoseconds
             return datetime.fromtimestamp(value / 1e9, tz=UTC)
@@ -45,11 +51,11 @@ def _to_utc_datetime(value) -> datetime:
     return pd.Timestamp(str(value)).tz_localize("UTC").to_pydatetime()
 
 
-def _parse_nautilus_money(value) -> tuple[float, str]:
-    """Parse NautilusTrader money strings like '-56.40 USD' to (amount, currency).
+def _parse_nautilus_money(value: object) -> tuple[float, str]:
+    """Parse NautilusTrader money strings like ``'-56.40 USD'``.
 
     Returns:
-        Tuple of (numeric value, currency code).  Currency defaults to "USD"
+        Tuple of (numeric value, currency code).  Currency defaults to ``"USD"``
         when the string has no currency suffix.
     """
     s = str(value)
@@ -100,15 +106,15 @@ def _resample_bars(bars_df: pd.DataFrame, bar_type_str: str) -> pd.DataFrame:
     return resampled
 
 
-def _get_instrument(instrument_str: str, venue: str):
-    """Get a NautilusTrader instrument for the given string (e.g. 'EUR/USD').
+def _get_instrument(instrument_str: str, venue: str) -> Any:
+    """Get a NautilusTrader instrument for the given string (e.g. ``'EUR/USD'``).
 
     Uses the instrument registry to decide whether to use the built-in
     ``TestInstrumentProvider.default_fx_ccy()`` (for standard FX pairs) or
     to construct a custom ``CurrencyPair`` (for commodities and other
     non-standard instruments).
     """
-    from nautilus_trader.model.currencies import Currency as NTCurrency
+    from nautilus_trader.model.currencies import Currency as NTCurrency  # type: ignore[attr-defined]  # noqa: I001
     from nautilus_trader.model.instruments import CurrencyPair
     from nautilus_trader.model.objects import Money, Price, Quantity
 
@@ -149,7 +155,7 @@ def _get_instrument(instrument_str: str, venue: str):
 
 def _add_quote_ticks(
     engine: BacktestEngine,
-    instrument,
+    instrument: Any,
     bars_df: pd.DataFrame,
     instrument_str: str,
 ) -> None:
@@ -281,20 +287,25 @@ def run_backtest(
 
 
 def _find_config_class(strategy_cls: type) -> type:
-    """Find the StrategyConfig class associated with a strategy."""
+    """Find the StrategyConfig class associated with a strategy.
+
+    First checks the ``config`` parameter annotation on ``__init__``.
+    Falls back to scanning the module for a class whose name ends with
+    ``Config`` (excluding the base ``StrategyConfig``).
+    """
+    import importlib
     import inspect
 
-    sig = inspect.signature(strategy_cls.__init__)
-    for param in sig.parameters.values():
+    sig = inspect.signature(strategy_cls)
+    for param in sig.parameters.values():  # pragma: no branch
         if param.name == "config" and param.annotation != inspect.Parameter.empty:
             ann = param.annotation
             if isinstance(ann, str):
-                import importlib
                 module = importlib.import_module(strategy_cls.__module__)
-                return getattr(module, ann)
-            return ann
+                resolved: type = getattr(module, ann)
+                return resolved
+            return ann  # type: ignore[no-any-return]
 
-    import importlib
     module = importlib.import_module(strategy_cls.__module__)
     for attr_name in dir(module):
         attr = getattr(module, attr_name)
