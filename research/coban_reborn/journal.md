@@ -1,7 +1,7 @@
 # CobanReborn Strategy Research Journal
 
-**Status:** Active — 24h trading validated, live-trading audit completed
-**Verdict:** 24h trading is a massive upgrade (+73-97% more P&L on reliable pairs). XAU/USD is the top performer (+153% return, PF 2.13 over 15 months). Strategy is NOT live-ready (5/16 audit checks pass). Next: fix ATR spread deduction, add AUD/USD data via VPN, build live adapter.
+**Status:** Active — defaults updated, ATR spread fixed, 15-month corrected results in DB
+**Verdict:** Trend follow + ATR + 24h is the production config. Corrected 15-month results: XAU/USD +152% (PF 2.11), EUR/USD +65% (PF 1.49), GBP/USD +23% (PF 1.54). Strategy NOT live-ready (5/16 audit checks pass). Next: download AUD/USD via VPN, build live adapter.
 
 ---
 
@@ -76,6 +76,12 @@ uv run pyfx backtest -s coban_reborn -i EUR/GBP \
 6. **USD/JPY P&L is unreliable.** NautilusTrader can't convert JPY-denominated P&L to USD without a separate price feed. Win rate and profit factor are valid; absolute dollar P&L is in JPY terms.
 
 7. **Backtest realism matters.** Adding 50% slippage probability and intra-bar high/low exit checks reduced P&L by ~10% vs. naive bar-close exits. Still profitable across all instruments.
+
+8. **24h trading massively outperforms London-only for USD-quoted pairs.** Removing the 8-17 UTC session filter increased P&L by +73-97% on EUR/USD, GBP/USD, XAU/USD. Exception: EUR/GBP — 24h *hurts* it (PF drops 1.46→1.17). Keep 8-17h for EUR/GBP only.
+
+9. **ATR exits must deduct spread.** Original ATR implementation was missing spread deduction (fixed/trailing had it). Fixing this reduced EUR/USD P&L by 16% — the bug made ATR exits ~1.5 pips too optimistic.
+
+10. **Non-USD-quote pairs have broken P&L.** USD/CHF (quote=CHF) and EUR/GBP (quote=GBP) show the same conversion failure as USD/JPY. Win rate and PF are valid; dollar P&L and drawdown are not. Only USD-quoted pairs (EUR/USD, GBP/USD, XAU/USD) give trustworthy dollar returns.
 
 ---
 
