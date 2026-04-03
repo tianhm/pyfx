@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pandas as pd
-
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.config import BacktestEngineConfig, LoggingConfig
 from nautilus_trader.model.currencies import USD
@@ -26,7 +25,7 @@ def _to_utc_datetime(value) -> datetime:
     """Convert various timestamp formats to a UTC datetime."""
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
+            return value.replace(tzinfo=UTC)
         return value
     if isinstance(value, pd.Timestamp):
         if value.tzinfo is None:
@@ -34,11 +33,11 @@ def _to_utc_datetime(value) -> datetime:
         return value.to_pydatetime()
     if isinstance(value, (int, float)):
         if value > 1e15:  # nanoseconds
-            return datetime.fromtimestamp(value / 1e9, tz=timezone.utc)
+            return datetime.fromtimestamp(value / 1e9, tz=UTC)
         elif value > 1e12:  # microseconds
-            return datetime.fromtimestamp(value / 1e6, tz=timezone.utc)
+            return datetime.fromtimestamp(value / 1e6, tz=UTC)
         else:  # seconds
-            return datetime.fromtimestamp(value, tz=timezone.utc)
+            return datetime.fromtimestamp(value, tz=UTC)
     # String fallback
     return pd.Timestamp(str(value)).tz_localize("UTC").to_pydatetime()
 
@@ -139,7 +138,11 @@ def _find_config_class(strategy_cls: type) -> type:
     module = importlib.import_module(strategy_cls.__module__)
     for attr_name in dir(module):
         attr = getattr(module, attr_name)
-        if isinstance(attr, type) and attr_name.endswith("Config") and attr_name != "StrategyConfig":
+        if (
+            isinstance(attr, type)
+            and attr_name.endswith("Config")
+            and attr_name != "StrategyConfig"
+        ):
             return attr
 
     raise ValueError(f"Could not find config class for strategy {strategy_cls.__name__}")
@@ -225,7 +228,7 @@ def _extract_results(
     if not equity_curve:
         start_ts = config.start
         if start_ts.tzinfo is None:
-            start_ts = start_ts.replace(tzinfo=timezone.utc)
+            start_ts = start_ts.replace(tzinfo=UTC)
         equity_curve.append(EquityPoint(timestamp=start_ts, balance=config.balance))
 
     return BacktestResult(

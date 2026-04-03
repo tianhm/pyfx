@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -49,7 +48,6 @@ def backtest(
     param: tuple[str, ...],
 ) -> None:
     """Run a backtest."""
-    import pandas as pd
 
     from pyfx.backtest.runner import run_backtest
     from pyfx.core.types import BacktestConfig
@@ -160,7 +158,6 @@ def generate_sample_data(instrument: str, days: int, output: Path | None) -> Non
 def web(host: str, port: int) -> None:
     """Start the Django dashboard."""
     import os
-    import sys
 
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pyfx.web.pyfx_web.settings")
 
@@ -204,11 +201,10 @@ def _load_data(data_file: Path | None, start: datetime, end: datetime):
         bars_df.index = bars_df.index.tz_localize("UTC")
 
     # Make start/end tz-aware to match the data index
-    from datetime import timezone
     if start.tzinfo is None:
-        start = start.replace(tzinfo=timezone.utc)
+        start = start.replace(tzinfo=UTC)
     if end.tzinfo is None:
-        end = end.replace(tzinfo=timezone.utc)
+        end = end.replace(tzinfo=UTC)
 
     bars_df = bars_df.loc[start:end]
 
@@ -230,14 +226,14 @@ def _save_to_django(result) -> None:
     from django.core.management import call_command
     call_command("migrate", "--run-syncdb", verbosity=0)
 
-    from datetime import timezone as tz
+
     from pyfx.web.dashboard.models import BacktestRun, EquitySnapshot, Trade
 
     # Ensure tz-aware datetimes for Django
     if result.config.start.tzinfo is None:
-        result.config.start = result.config.start.replace(tzinfo=tz.utc)
+        result.config.start = result.config.start.replace(tzinfo=UTC)
     if result.config.end.tzinfo is None:
-        result.config.end = result.config.end.replace(tzinfo=tz.utc)
+        result.config.end = result.config.end.replace(tzinfo=UTC)
 
     run = BacktestRun.objects.create(
         strategy=result.config.strategy,

@@ -38,7 +38,7 @@ The user may specify a focus (e.g., `/ux-audit cli`, `/ux-audit dashboard`, `/ux
 ### Error Messages
 - Missing required options produce clear errors with hints (not bare tracebacks)
 - Invalid data files show actionable errors ("file not found" with the path, "no data in range" with the range)
-- Missing dependencies show how to install them (e.g., `pip install pyfx[web]` for dashboard)
+- Missing dependencies show how to install them (e.g., `uv pip install pyfx[web]` for dashboard)
 - Configuration errors (bad env vars) produce Pydantic validation messages, not cryptic crashes
 
 ### Output Readability
