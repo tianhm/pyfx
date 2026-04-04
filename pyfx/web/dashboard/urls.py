@@ -15,6 +15,7 @@ urlpatterns = [
     path("api/strategies/", views.api_strategies, name="api_strategies"),
     path("api/run/<int:pk>/status/", views.api_backtest_status, name="api_backtest_status"),
     path("api/run/<int:pk>/bars/", views.api_bars, name="api_bars"),
+    path("api/run/<int:pk>/chart-data/", views.api_chart_data, name="api_chart_data"),
     path("api/run/<int:pk>/indicators/", views.api_indicators, name="api_indicators"),
     path("api/run/<int:pk>/equity/", views.api_equity_curve, name="api_equity_curve"),
     path("api/run/<int:pk>/trades/", views.api_trades, name="api_trades"),

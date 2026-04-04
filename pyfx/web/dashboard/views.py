@@ -101,7 +101,7 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
 
     # Build trade markers JSON for the price chart
     trade_markers: list[dict[str, object]] = []
-    for t in trades:
+    for i, t in enumerate(trades):
         # Entry marker
         trade_markers.append({
             "time": int(t.opened_at.timestamp()),
@@ -109,6 +109,7 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "type": "entry",
             "price": float(t.open_price),
             "pnl": round(float(t.realized_pnl), 2),
+            "tradeIdx": i,
         })
         # Exit marker
         trade_markers.append({
@@ -117,6 +118,7 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "type": "exit",
             "price": float(t.close_price),
             "pnl": round(float(t.realized_pnl), 2),
+            "tradeIdx": i,
         })
 
     # Available timeframes for chart selector
@@ -395,11 +397,39 @@ _MAX_RESPONSE_BARS = 10_000
 _MAX_INDICATOR_PERIOD = 500
 
 
+def _serialize_bars(df: object) -> list[dict[str, object]]:
+    """Vectorized OHLCV DataFrame to list-of-dicts serialization."""
+    import pandas as pd
+
+    assert isinstance(df, pd.DataFrame)
+    result_df = pd.DataFrame({
+        "time": df.index.astype("int64") // 10**9,
+        "open": df["open"].round(6),
+        "high": df["high"].round(6),
+        "low": df["low"].round(6),
+        "close": df["close"].round(6),
+    })
+    if "volume" in df.columns:
+        result_df["volume"] = df["volume"].round(2)
+    return list(result_df.to_dict(orient="records"))  # type: ignore[arg-type]
+
+
+def _serialize_series(series: object) -> list[dict[str, object]]:
+    """Vectorized Series to list-of-dicts serialization."""
+    import pandas as pd
+
+    assert isinstance(series, pd.Series)
+    s = series.dropna()
+    out_df = pd.DataFrame({
+        "time": s.index.astype("int64") // 10**9,
+        "value": s.round(8).values,
+    })
+    return list(out_df.to_dict(orient="records"))  # type: ignore[arg-type]
+
+
 def api_bars(request: HttpRequest, pk: int) -> JsonResponse:
     """Return OHLCV bar data for charting."""
     import math
-
-    import pandas as pd
 
     from pyfx.data.resample import load_bars
 
@@ -424,26 +454,12 @@ def api_bars(request: HttpRequest, pk: int) -> JsonResponse:
     if len(df) > _MAX_RESPONSE_BARS:
         df = df.iloc[-_MAX_RESPONSE_BARS:]
 
-    data: list[dict[str, object]] = []
-    for ts, row in df.iterrows():
-        entry: dict[str, object] = {
-            "time": int(pd.Timestamp(str(ts)).timestamp()),
-            "open": round(float(row["open"]), 6),
-            "high": round(float(row["high"]), 6),
-            "low": round(float(row["low"]), 6),
-            "close": round(float(row["close"]), 6),
-        }
-        if "volume" in row.index:
-            entry["volume"] = round(float(row["volume"]), 2)
-        data.append(entry)
-
+    data = _serialize_bars(df)
     return JsonResponse(data, safe=False)
 
 
 def api_indicators(request: HttpRequest, pk: int) -> JsonResponse:
     """Compute and return indicator values for charting."""
-    import pandas as pd
-
     from pyfx.data.resample import compute_indicator, load_bars
 
     run = get_object_or_404(BacktestRun, pk=pk)
@@ -479,22 +495,10 @@ def api_indicators(request: HttpRequest, pk: int) -> JsonResponse:
         # MACD returns multiple series
         response: dict[str, list[dict[str, object]]] = {}
         for key, series in result.items():
-            response[key] = [
-                {
-                    "time": int(pd.Timestamp(str(ts)).timestamp()),
-                    "value": round(float(v), 8),
-                }
-                for ts, v in series.dropna().items()
-            ]
+            response[key] = _serialize_series(series)
         return JsonResponse(response)
 
-    data: list[dict[str, object]] = [
-        {
-            "time": int(pd.Timestamp(str(ts)).timestamp()),
-            "value": round(float(v), 8),
-        }
-        for ts, v in result.dropna().items()
-    ]
+    data = _serialize_series(result)
     return JsonResponse(data, safe=False)
 
 
@@ -527,6 +531,78 @@ def api_trades(request: HttpRequest, pk: int) -> JsonResponse:
         for t in trades
     ]
     return JsonResponse(data, safe=False)
+
+
+def api_chart_data(request: HttpRequest, pk: int) -> JsonResponse:
+    """Combined endpoint: bars + indicators in a single request."""
+    import math
+
+    from pyfx.data.resample import compute_indicator, load_bars
+
+    run = get_object_or_404(BacktestRun, pk=pk)
+    timeframe = request.GET.get("timeframe")
+    indicators_param = request.GET.get("indicators", "")
+
+    if timeframe is not None and timeframe not in _VALID_TIMEFRAMES:
+        return JsonResponse({"error": "Invalid timeframe"}, status=400)
+
+    # Parse indicators param: "sma:20,rsi:14,macd:12"
+    indicator_requests: list[tuple[str, int]] = []
+    if indicators_param:
+        for part in indicators_param.split(","):
+            part = part.strip()
+            if ":" not in part:
+                return JsonResponse(
+                    {"error": f"Invalid indicator format: {part!r}"}, status=400,
+                )
+            name, period_str = part.split(":", 1)
+            if name not in _VALID_INDICATORS:
+                return JsonResponse(
+                    {"error": f"Invalid indicator: {name!r}"}, status=400,
+                )
+            try:
+                period = int(period_str)
+            except ValueError:
+                return JsonResponse(
+                    {"error": f"Invalid period: {period_str!r}"}, status=400,
+                )
+            if not (1 <= period <= _MAX_INDICATOR_PERIOD):
+                return JsonResponse(
+                    {"error": f"period must be between 1 and {_MAX_INDICATOR_PERIOD}"},
+                    status=400,
+                )
+            indicator_requests.append((name, period))
+
+    try:
+        df = load_bars(run.data_file, timeframe=timeframe)
+    except FileNotFoundError:
+        return JsonResponse({"error": "Data file not found"}, status=404)
+
+    # Auto-downsample if too many bars and no explicit timeframe
+    if len(df) > _MAX_RESPONSE_BARS and timeframe is None:
+        factor = math.ceil(len(df) / _MAX_RESPONSE_BARS)
+        auto_tf = f"{factor}-MINUTE-LAST-EXTERNAL"
+        df = load_bars(run.data_file, timeframe=auto_tf)
+
+    # Hard cap on response size
+    if len(df) > _MAX_RESPONSE_BARS:
+        df = df.iloc[-_MAX_RESPONSE_BARS:]
+
+    bars = _serialize_bars(df)
+
+    # Compute requested indicators on same DataFrame
+    indicators_response: dict[str, object] = {}
+    for name, period in indicator_requests:
+        key = f"{name}_{period}"
+        result = compute_indicator(df, name, period)
+        if isinstance(result, dict):
+            indicators_response[key] = {
+                k: _serialize_series(s) for k, s in result.items()
+            }
+        else:
+            indicators_response[key] = _serialize_series(result)
+
+    return JsonResponse({"bars": bars, "indicators": indicators_response})
 
 
 def api_backtest_status(request: HttpRequest, pk: int) -> JsonResponse:

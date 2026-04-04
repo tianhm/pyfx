@@ -197,6 +197,11 @@ class BacktestDetailViewTests(TestCase):
         assert "time" in markers[0]
         assert "side" in markers[0]
         assert "price" in markers[0]
+        # tradeIdx links markers to trade table rows
+        assert markers[0]["tradeIdx"] == 0
+        assert markers[1]["tradeIdx"] == 0
+        assert markers[2]["tradeIdx"] == 1
+        assert markers[3]["tradeIdx"] == 1
 
     def test_detail_available_timeframes(self):
         resp = self.client.get(f"/run/{self.run.pk}/")
@@ -621,6 +626,183 @@ class ApiIndicatorsViewTests(TestCase):
         resp = self.client.get(
             f"/api/run/{self.run.pk}/indicators/?name=sma&period=20"
         )
+        assert resp.status_code == 404
+
+
+class ApiChartDataViewTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.run = _create_run()
+
+    @patch("pyfx.data.resample.compute_indicator")
+    @patch("pyfx.data.resample.load_bars")
+    def test_chart_data_bars_and_indicators(
+        self, mock_load: MagicMock, mock_compute: MagicMock,
+    ) -> None:
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "open": [1.1, 1.2],
+                "high": [1.15, 1.25],
+                "low": [1.05, 1.15],
+                "close": [1.12, 1.22],
+                "volume": [100.0, 200.0],
+            },
+            index=pd.date_range("2024-01-02", periods=2, freq="min", tz="UTC"),
+        )
+        mock_load.return_value = df
+        mock_compute.return_value = pd.Series([1.15, 1.25], index=df.index)
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/chart-data/"
+            "?timeframe=5-MINUTE-LAST-EXTERNAL&indicators=sma:20"
+        )
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        assert "bars" in data
+        assert "indicators" in data
+        assert len(data["bars"]) == 2
+        assert "sma_20" in data["indicators"]
+        assert len(data["indicators"]["sma_20"]) == 2
+
+    @patch("pyfx.data.resample.compute_indicator")
+    @patch("pyfx.data.resample.load_bars")
+    def test_chart_data_macd_indicator(
+        self, mock_load: MagicMock, mock_compute: MagicMock,
+    ) -> None:
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "open": [1.1, 1.2, 1.3],
+                "high": [1.15, 1.25, 1.35],
+                "low": [1.05, 1.15, 1.25],
+                "close": [1.12, 1.22, 1.32],
+            },
+            index=pd.date_range("2024-01-02", periods=3, freq="min", tz="UTC"),
+        )
+        mock_load.return_value = df
+        mock_compute.return_value = {
+            "macd": pd.Series([0.01, 0.02, 0.03], index=df.index),
+            "signal": pd.Series([0.005, 0.015, 0.025], index=df.index),
+            "histogram": pd.Series([0.005, 0.005, 0.005], index=df.index),
+        }
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/chart-data/?indicators=macd:12"
+        )
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        macd_data = data["indicators"]["macd_12"]
+        assert "macd" in macd_data
+        assert "signal" in macd_data
+        assert "histogram" in macd_data
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_chart_data_bars_only(self, mock_load: MagicMock) -> None:
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {"open": [1.1], "high": [1.2], "low": [1.0], "close": [1.15]},
+            index=pd.date_range("2024-01-02", periods=1, freq="min", tz="UTC"),
+        )
+        mock_load.return_value = df
+        resp = self.client.get(f"/api/run/{self.run.pk}/chart-data/")
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        assert len(data["bars"]) == 1
+        assert data["indicators"] == {}
+
+    def test_chart_data_invalid_indicator_format(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/chart-data/?indicators=sma"
+        )
+        assert resp.status_code == 400
+
+    def test_chart_data_invalid_indicator_name(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/chart-data/?indicators=bollinger:20"
+        )
+        assert resp.status_code == 400
+
+    def test_chart_data_invalid_period(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/chart-data/?indicators=sma:abc"
+        )
+        assert resp.status_code == 400
+
+    def test_chart_data_period_out_of_range(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/chart-data/?indicators=sma:0"
+        )
+        assert resp.status_code == 400
+
+    def test_chart_data_invalid_timeframe(self) -> None:
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/chart-data/?timeframe=bad"
+        )
+        assert resp.status_code == 400
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_chart_data_file_not_found(self, mock_load: MagicMock) -> None:
+        mock_load.side_effect = FileNotFoundError("not found")
+        resp = self.client.get(f"/api/run/{self.run.pk}/chart-data/")
+        assert resp.status_code == 404
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_chart_data_auto_downsample(self, mock_load: MagicMock) -> None:
+        import pandas as pd
+
+        big_df = pd.DataFrame(
+            {
+                "open": [1.1] * 15000,
+                "high": [1.2] * 15000,
+                "low": [1.0] * 15000,
+                "close": [1.15] * 15000,
+                "volume": [100.0] * 15000,
+            },
+            index=pd.date_range("2024-01-02", periods=15000, freq="min", tz="UTC"),
+        )
+        small_df = pd.DataFrame(
+            {
+                "open": [1.1] * 100,
+                "high": [1.2] * 100,
+                "low": [1.0] * 100,
+                "close": [1.15] * 100,
+                "volume": [100.0] * 100,
+            },
+            index=pd.date_range("2024-01-02", periods=100, freq="5min", tz="UTC"),
+        )
+        mock_load.side_effect = [big_df, small_df]
+        resp = self.client.get(f"/api/run/{self.run.pk}/chart-data/")
+        assert resp.status_code == 200
+        assert mock_load.call_count == 2
+
+    @patch("pyfx.data.resample.load_bars")
+    def test_chart_data_hard_cap(self, mock_load: MagicMock) -> None:
+        """Explicit timeframe with >10k bars gets truncated."""
+        import pandas as pd
+
+        big_df = pd.DataFrame(
+            {
+                "open": [1.1] * 15000,
+                "high": [1.2] * 15000,
+                "low": [1.0] * 15000,
+                "close": [1.15] * 15000,
+                "volume": [100.0] * 15000,
+            },
+            index=pd.date_range("2024-01-02", periods=15000, freq="min", tz="UTC"),
+        )
+        mock_load.return_value = big_df
+        resp = self.client.get(
+            f"/api/run/{self.run.pk}/chart-data/"
+            "?timeframe=1-MINUTE-LAST-EXTERNAL"
+        )
+        assert resp.status_code == 200
+        data = json.loads(resp.content)
+        assert len(data["bars"]) == 10000
+
+    def test_chart_data_404_run(self) -> None:
+        resp = self.client.get("/api/run/99999/chart-data/")
         assert resp.status_code == 404
 
 
