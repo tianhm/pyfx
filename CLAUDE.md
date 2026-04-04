@@ -64,6 +64,7 @@ tests/
 uv run pyfx backtest -s <strategy> --start <date> --end <date> --data-file <path>  # Run a backtest
 uv run pyfx backtest -s coban_reborn ... --extra-bar-type 5-MINUTE-LAST-EXTERNAL --extra-bar-type 15-MINUTE-LAST-EXTERNAL  # Default: trend_follow + ATR + 24h
 uv run pyfx backtest -s coban_reborn ... --extra-bar-type 5-MINUTE-LAST-EXTERNAL --extra-bar-type 15-MINUTE-LAST-EXTERNAL -p session_start_hour=8 -p session_end_hour=17  # London/NY hours only (EUR/GBP)
+uv run pyfx backtest ... --seed 0                                                                                          # Random slippage seed (default: 42)
 uv run pyfx strategies                                                              # List available strategies
 uv run pyfx generate-sample-data                                                    # Create synthetic test data
 uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
@@ -154,10 +155,12 @@ All new code must include tests. No exceptions.
 - **MACD histogram**: NautilusTrader's `MovingAverageConvergenceDivergence` only provides the MACD line (`.value`), not the signal line or histogram. Compute these manually using two EMAs + a signal-line EMA.
 - **NautilusTrader indicators import**: Use `from nautilus_trader.indicators import RelativeStrengthIndex, SimpleMovingAverage, ExponentialMovingAverage` (top-level `indicators` module, not submodules like `indicators.rsi`)
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
-- **Backtest realism**: Runner uses `FillModel(prob_slippage=0.9, random_seed=42)` for 90% chance of 1-tick slippage on fills. Exit TP/SL checks use bar high/low (not close) for realistic intra-bar fills. `MakerTakerFeeModel` fees are low (0.002%) — spreads are the real cost for FX.
+- **Backtest realism**: Runner uses `FillModel(prob_slippage=0.9)` for 90% chance of 1-tick slippage on fills. Seed configurable via `--seed` (default 42, `--seed 0` = random). Exit TP/SL checks use bar high/low (not close) for realistic intra-bar fills. `MakerTakerFeeModel` fees are low (0.002%) — spreads are the real cost for FX.
 - **Signal staleness**: Trend_follow mode timestamps MACD histogram and RSI values via `filter_staleness_seconds` (default 7200s = 2 H1 bars). Stale filter values are rejected to prevent trading on outdated signals.
 - **Next-bar entry**: `next_bar_entry=True` defers entry to the next M1 bar open (more realistic timing). Off by default. Produces different P&L than immediate entry — useful for measuring timing cost.
 - **XAU/USD is the primary instrument**: Out-of-sample testing (2024) showed EUR/USD PF 1.17 (too thin for live) vs XAU/USD PF 1.89. Gold's trending nature suits trend_follow. Focus live efforts on XAU/USD.
+- **Optimized CobanReborn params**: SMA 3/7, MACD 8/21/5, ATR TP=3.0/SL=2.0 outperforms defaults (4/9, 12/26/9, 2.0/1.5) by +30%. Validated on 5 instruments with 6 seeds. See `scripts/money_maker_sweep.py` and `scripts/stress_test.py`.
+- **Broker for live**: Interactive Brokers is the only broker with a NautilusTrader adapter. Paper trading available with $1M virtual, no expiry.
 - **CobanReborn defaults**: `entry_mode="trend_follow"`, `exit_mode="atr"`, 24h trading (`session_start_hour=0`, `session_end_hour=24`). Use `-p session_start_hour=8 -p session_end_hour=17` for EUR/GBP. The old `"full"` mode requires 5-layer confluence (often 0 trades). The `-p` CLI flag parses `true`/`false` as strings, not booleans — use `entry_mode=trend_follow` not boolean params via CLI.
 - **Non-FX instruments**: `TestInstrumentProvider.default_fx_ccy()` creates any pair with FX-style 5-decimal precision. For gold (XAU/USD ~$3000) and oil, the pip size (0.0001) is unrealistic — use ATR-based exits which auto-adapt to volatility. Fixed pip TP/SL need scaling (e.g., 300 pips for gold vs 10 for EUR/USD).
 - **Dukascopy CLI flags**: Use `--date-from`/`--date-to` (not `-s`/`-e`), `-t m1` for timeframe, `-v` for volumes, `-f csv` for format, `--directory .` to save in current dir. Instrument names: `eurusd`, `usdjpy`, `gbpusd`, `xauusd`, `lightcmdusd` (WTI), `usdchf`, `eurgbp`. `bcousd`/`brentcmdusd` returns empty data. `audusd`/`nzdusd` may fail (IP blocking — use VPN).
