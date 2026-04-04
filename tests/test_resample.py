@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pyfx.data.resample import compute_indicator, load_bars, resample_bars
+from pyfx.data.resample import _load_raw, compute_indicator, load_bars, resample_bars
 
 
 def _make_m1_bars(n: int = 300) -> pd.DataFrame:
@@ -151,6 +151,23 @@ class TestLoadBars:
         df.to_parquet(path)
         loaded = load_bars(str(path))
         assert loaded.index.tz is not None
+
+    def test_load_raw_cache_hit(self, tmp_path: Path) -> None:
+        """Second call for same path should hit LRU cache."""
+        _load_raw.cache_clear()
+        df = _make_m1_bars(50)
+        path = tmp_path / "cached.parquet"
+        df.to_parquet(path)
+        path_str = str(path)
+
+        first = load_bars(path_str)
+        info1 = _load_raw.cache_info()
+        second = load_bars(path_str)
+        info2 = _load_raw.cache_info()
+
+        assert len(first) == len(second)
+        assert info2.hits == info1.hits + 1
+        _load_raw.cache_clear()
 
 
 class TestComputeIndicator:

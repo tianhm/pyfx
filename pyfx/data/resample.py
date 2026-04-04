@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -45,6 +46,27 @@ def resample_bars(bars_df: pd.DataFrame, bar_type_str: str) -> pd.DataFrame:
     return resampled
 
 
+@lru_cache(maxsize=8)
+def _load_raw(data_file: str) -> pd.DataFrame:
+    """Read and normalize a data file. Cached by path string."""
+    path = Path(data_file)
+    if not path.exists():
+        raise FileNotFoundError(f"Data file not found: {data_file}")
+
+    if path.suffix == ".parquet":
+        df: pd.DataFrame = pd.read_parquet(path)
+    else:
+        df = pd.read_csv(path, index_col=0, parse_dates=True)
+
+    # Ensure UTC DatetimeIndex
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
+
+    return df
+
+
 def load_bars(
     data_file: str | Path,
     timeframe: str | None = None,
@@ -62,20 +84,7 @@ def load_bars(
     Raises:
         FileNotFoundError: If the data file does not exist.
     """
-    path = Path(data_file)
-    if not path.exists():
-        raise FileNotFoundError(f"Data file not found: {data_file}")
-
-    if path.suffix == ".parquet":
-        df: pd.DataFrame = pd.read_parquet(path)
-    else:
-        df = pd.read_csv(path, index_col=0, parse_dates=True)
-
-    # Ensure UTC DatetimeIndex
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
-    if df.index.tz is None:
-        df.index = df.index.tz_localize("UTC")
+    df = _load_raw(str(data_file))
 
     if timeframe is not None:
         df = resample_bars(df, timeframe)
