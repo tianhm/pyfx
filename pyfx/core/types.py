@@ -25,11 +25,43 @@ class BacktestConfig(BaseModel):
     balance: float = 100_000.0
     leverage: float = 50.0
     venue: str = "SIM"
-    strategy_params: dict[str, int | float | str] = Field(default_factory=dict)
+    strategy_params: dict[str, bool | int | float | str] = Field(default_factory=dict)
     random_seed: int | None = Field(
         default=42,
         description="Random seed for slippage model (None = random each run)",
     )
+
+
+def parse_strategy_params(
+    params: tuple[str, ...] | dict[str, str],
+) -> dict[str, bool | int | float | str]:
+    """Parse strategy parameters, coercing values to bool, int, float, or str.
+
+    Accepts either CLI ``key=value`` tuples or a dict of string key-value pairs
+    (e.g. from a web form).
+    """
+    items: list[tuple[str, str]]
+    if isinstance(params, dict):
+        items = list(params.items())
+    else:
+        items = []
+        for p in params:
+            key, _, value = p.partition("=")
+            items.append((key, value))
+
+    result: dict[str, bool | int | float | str] = {}
+    for key, value in items:
+        if value.lower() in ("true", "false"):
+            result[key] = value.lower() == "true"
+        else:
+            try:
+                result[key] = int(value)
+            except ValueError:
+                try:
+                    result[key] = float(value)
+                except ValueError:
+                    result[key] = value
+    return result
 
 
 class TradeRecord(BaseModel):

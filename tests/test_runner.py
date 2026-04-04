@@ -9,10 +9,10 @@ import pytest
 
 from pyfx.backtest.runner import (
     _convert_pnl_to_usd,
-    _find_config_class,
     _parse_nautilus_money,
     _to_utc_datetime,
 )
+from pyfx.strategies.loader import find_strategy_config_class
 
 
 # ---------------------------------------------------------------------------
@@ -102,31 +102,34 @@ class TestConvertPnlToUsd:
 
 
 # ---------------------------------------------------------------------------
-# _find_config_class
+# find_strategy_config_class
 # ---------------------------------------------------------------------------
 
-class TestFindConfigClass:
+class TestFindStrategyConfigClass:
     def test_finds_annotated_config(self) -> None:
         from pyfx.strategies.sample_sma import SMACrossStrategy
 
-        config_cls = _find_config_class(SMACrossStrategy)
+        config_cls = find_strategy_config_class(SMACrossStrategy)
+        assert config_cls is not None
         assert config_cls.__name__ == "SMACrossConfig"
 
     def test_finds_coban_config(self) -> None:
         from pyfx.strategies.coban_reborn import CobanRebornStrategy
 
-        config_cls = _find_config_class(CobanRebornStrategy)
+        config_cls = find_strategy_config_class(CobanRebornStrategy)
+        assert config_cls is not None
         assert config_cls.__name__ == "CobanRebornConfig"
 
-    def test_no_config_raises(self) -> None:
+    def test_no_config_returns_none(self) -> None:
         class NoConfigStrategy:
             pass
 
-        with pytest.raises(ValueError, match="Could not find config class"):
-            _find_config_class(NoConfigStrategy)
+        assert find_strategy_config_class(NoConfigStrategy) is None
+
 
     def test_fallback_module_scan(self) -> None:
         """When __init__ has no config annotation, scan module for *Config class."""
+        import sys
         import types
 
         module = types.ModuleType("fake_module")
@@ -144,10 +147,9 @@ class TestFindConfigClass:
         module.FakeConfig = FakeConfig  # type: ignore[attr-defined]
         module.FakeStrategy = FakeStrategy  # type: ignore[attr-defined]
 
-        import sys
         sys.modules["fake_module"] = module
         try:
-            result = _find_config_class(FakeStrategy)
+            result = find_strategy_config_class(FakeStrategy)
             assert result is FakeConfig
         finally:
             del sys.modules["fake_module"]

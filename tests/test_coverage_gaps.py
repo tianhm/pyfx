@@ -1038,8 +1038,8 @@ class TestLoaderExecModule:
 
 class TestViewsEdgeCases:
     def test_find_strategy_config_fallback(self) -> None:
-        """Line 304: fallback module scan path in views._find_strategy_config."""
-        from pyfx.web.dashboard.views import _find_strategy_config
+        """Fallback module scan path in find_strategy_config_class."""
+        from pyfx.strategies.loader import find_strategy_config_class
 
         # Create a class whose __init__ has no 'config' annotation
         class NoAnnotation:
@@ -1048,7 +1048,7 @@ class TestViewsEdgeCases:
             def __init__(self) -> None:
                 pass
 
-        result = _find_strategy_config(NoAnnotation)
+        result = find_strategy_config_class(NoAnnotation)
         # Should find a Config class via module scan
         assert result is not None
         assert "Config" in result.__name__
@@ -1247,10 +1247,10 @@ class TestViewsStrategyConfigEdgeCases:
         factory = RequestFactory()
         request = factory.get("/api/strategies/")
 
-        # Make _find_strategy_config raise to exercise the except branch
+        # Make find_strategy_config_class raise to exercise the except branch
         with patch(
-            "pyfx.web.dashboard.views._find_strategy_config",
-            side_effect=Exception("test error"),
+            "pyfx.strategies.loader.find_strategy_config_class",
+            side_effect=TypeError("test error"),
         ):
             response = api_strategies(request)
             assert response.status_code == 200

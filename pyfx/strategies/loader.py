@@ -94,3 +94,36 @@ def get_strategy(name: str, extra_dir: Path | None = None) -> type[PyfxStrategy]
         available = ", ".join(sorted(strategies.keys()))
         raise KeyError(f"Strategy '{name}' not found. Available: {available}")
     return strategies[name]
+
+
+def find_strategy_config_class(strategy_cls: type) -> type | None:
+    """Find the StrategyConfig class associated with a strategy.
+
+    First checks the ``config`` parameter annotation on ``__init__``.
+    Falls back to scanning the module for a class whose name ends with
+    ``Config`` (excluding the base ``StrategyConfig``).
+
+    Returns ``None`` if no config class is found.
+    """
+    import inspect
+
+    sig = inspect.signature(strategy_cls)
+    for param in sig.parameters.values():  # pragma: no branch
+        if param.name == "config" and param.annotation != inspect.Parameter.empty:
+            ann = param.annotation
+            if isinstance(ann, str):
+                module = importlib.import_module(strategy_cls.__module__)
+                return getattr(module, ann, None)
+            return ann  # type: ignore[no-any-return]
+
+    module = importlib.import_module(strategy_cls.__module__)
+    for attr_name in dir(module):
+        attr = getattr(module, attr_name)
+        if (
+            isinstance(attr, type)
+            and attr_name.endswith("Config")
+            and attr_name != "StrategyConfig"
+        ):
+            return attr
+
+    return None

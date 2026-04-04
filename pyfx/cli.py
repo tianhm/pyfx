@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import click
 
@@ -218,12 +218,9 @@ def ingest(input_path: Path, output_path: Path | None) -> None:
 @click.option("--no-reload", is_flag=True, default=False, help="Disable auto-reload")
 def web(host: str, port: int, no_reload: bool) -> None:
     """Start the Django dashboard."""
-    _setup_django()
+    _ensure_migrated()
 
-    from django.core.management import call_command, execute_from_command_line
-
-    # Auto-migrate on first run
-    call_command("migrate", "--run-syncdb", verbosity=0)
+    from django.core.management import execute_from_command_line
 
     # Auto-scan data directory for unregistered Parquet files
     from pyfx.data.scanner import scan_data_directory
@@ -286,11 +283,7 @@ def data_list() -> None:
 @data.command("scan")
 def data_scan() -> None:
     """Scan data directory and register untracked Parquet files."""
-    _setup_django()
-
-    from django.core.management import call_command
-
-    call_command("migrate", "--run-syncdb", verbosity=0)
+    _ensure_migrated()
 
     from pyfx.data.scanner import scan_data_directory
 
@@ -298,19 +291,11 @@ def data_scan() -> None:
     click.echo(f"Registered {registered} new dataset(s), {already_tracked} already tracked.")
 
 
-def _parse_params(params: tuple[str, ...]) -> dict[str, int | float | str]:
-    """Parse ``key=value`` CLI params, coercing to int, float, or str."""
-    result: dict[str, int | float | str] = {}
-    for p in params:
-        key, _, value = p.partition("=")
-        try:
-            result[key] = int(value)
-        except ValueError:
-            try:
-                result[key] = float(value)
-            except ValueError:
-                result[key] = value
-    return result
+def _parse_params(params: tuple[str, ...]) -> dict[str, bool | int | float | str]:
+    """Parse ``key=value`` CLI params, coercing to bool, int, float, or str."""
+    from pyfx.core.types import parse_strategy_params
+
+    return parse_strategy_params(params)
 
 
 def _load_data(
@@ -322,99 +307,46 @@ def _load_data(
 
     Exits with code 1 if no data file is given or the filtered data is empty.
     """
-    import pandas as pd
-
     if data_file is None:
         click.echo("Error: --data-file is required")
         click.echo("  Generate sample data with: pyfx generate-sample-data")
         raise SystemExit(1)
 
-    if data_file.suffix == ".parquet":
-        bars_df = pd.read_parquet(data_file)
-    else:
-        bars_df = pd.read_csv(data_file, index_col=0, parse_dates=True)
+    from pyfx.data.loader import load_backtest_data
 
-    idx = cast("pd.DatetimeIndex", bars_df.index)
-    if idx.tz is None:
-        bars_df.index = idx.tz_localize("UTC")
-
-    # Make start/end tz-aware to match the data index
-    if start.tzinfo is None:
-        start = start.replace(tzinfo=UTC)
-    if end.tzinfo is None:
-        end = end.replace(tzinfo=UTC)
-
-    bars_df = bars_df.loc[start:end]  # type: ignore[misc]
-
-    if bars_df.empty:
-        click.echo("Error: no data in the specified date range")
-        raise SystemExit(1)
-
-    return bars_df
+    try:
+        return load_backtest_data(data_file, start, end)
+    except FileNotFoundError as exc:
+        click.echo(f"Error: {exc}")
+        raise SystemExit(1) from exc
+    except ValueError as exc:
+        click.echo(f"Error: {exc}")
+        raise SystemExit(1) from exc
 
 
-def _save_to_django(result: BacktestResult) -> None:
-    """Save backtest result to Django database."""
+_migrated = False
+
+
+def _ensure_migrated() -> None:
+    """Run Django migrations once per process."""
+    global _migrated  # noqa: PLW0603
+    if _migrated:
+        return
     _setup_django()
 
     from django.core.management import call_command
 
     call_command("migrate", "--run-syncdb", verbosity=0)
+    _migrated = True
 
-    from pyfx.web.dashboard.models import BacktestRun, EquitySnapshot, Trade
 
-    # Ensure tz-aware datetimes for Django
-    cfg_start = result.config.start
-    cfg_end = result.config.end
-    if cfg_start.tzinfo is None:
-        cfg_start = cfg_start.replace(tzinfo=UTC)
-    if cfg_end.tzinfo is None:
-        cfg_end = cfg_end.replace(tzinfo=UTC)
+def _save_to_django(result: BacktestResult) -> None:
+    """Save backtest result to Django database."""
+    _ensure_migrated()
 
-    run = BacktestRun.objects.create(
-        strategy=result.config.strategy,
-        instrument=result.config.instrument,
-        start=cfg_start,
-        end=cfg_end,
-        bar_type=result.config.bar_type,
-        extra_bar_types=result.config.extra_bar_types,
-        trade_size=float(result.config.trade_size),
-        balance=result.config.balance,
-        leverage=result.config.leverage,
-        strategy_params=result.config.strategy_params,
-        total_pnl=result.total_pnl,
-        total_return_pct=result.total_return_pct,
-        num_trades=result.num_trades,
-        win_rate=result.win_rate,
-        max_drawdown_pct=result.max_drawdown_pct,
-        avg_trade_pnl=result.avg_trade_pnl,
-        avg_win=result.avg_win,
-        avg_loss=result.avg_loss,
-        profit_factor=result.profit_factor,
-        duration_seconds=result.duration_seconds,
-    )
+    from pyfx.web.dashboard.services import save_backtest_result
 
-    Trade.objects.bulk_create([
-        Trade(
-            run=run,
-            instrument=t.instrument,
-            side=t.side,
-            quantity=t.quantity,
-            open_price=t.open_price,
-            close_price=t.close_price,
-            realized_pnl=t.realized_pnl,
-            realized_return_pct=t.realized_return_pct,
-            opened_at=t.opened_at,
-            closed_at=t.closed_at,
-            duration_seconds=t.duration_seconds,
-        )
-        for t in result.trades
-    ])
-
-    EquitySnapshot.objects.bulk_create([
-        EquitySnapshot(run=run, timestamp=ep.timestamp, balance=ep.balance)
-        for ep in result.equity_curve
-    ])
+    save_backtest_result(result)
 
 
 if __name__ == "__main__":

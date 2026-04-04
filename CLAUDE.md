@@ -31,6 +31,7 @@ pyfx/
     coban_reborn.py          # Multi-timeframe strategy: "full" confluence or "trend_follow" mode
     coban_experimental.py    # Experimental testbed for strategy variations (7 entry × 3 exit modes)
   data/
+    loader.py                # Shared data loading (CSV/Parquet + UTC handling)
     dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet
   backtest/
     runner.py                # NautilusTrader BacktestEngine integration
@@ -38,6 +39,7 @@ pyfx/
   web/
     pyfx_web/settings.py     # Django settings
     dashboard/               # Django app: models, views, URLs, migrations
+      services.py            # Shared backtest result saving logic
       management/commands/
         run_backtest.py      # CLI management command to run + save backtest
         run_backtest_web.py  # Subprocess command for web-triggered backtests
@@ -84,6 +86,8 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 | `PYFX_DEFAULT_LEVERAGE` | Leverage ratio | 50 |
 | `PYFX_DB_PATH` | SQLite database path | `~/.pyfx/db.sqlite3` |
 | `PYFX_SECRET_KEY` | Django secret key | dev default (change in prod) |
+| `PYFX_DEBUG` | Django DEBUG mode | `true` |
+| `PYFX_ALLOWED_HOSTS` | Django ALLOWED_HOSTS (JSON list) | `["*"]` |
 
 ## Quality Gates (mandatory before commit)
 
@@ -143,10 +147,11 @@ All new code must include tests. No exceptions.
 - **Data files**: must have OHLCV columns (`open`, `high`, `low`, `close`, `volume`) with a DatetimeIndex
 - **Timezone handling**: bar data index must be UTC. `_load_data()` auto-localizes naive timestamps
 - **Django dashboard**: uses SQLite at `~/.pyfx/db.sqlite3`, auto-migrates on `pyfx web` startup. Sidebar layout with DaisyUI drawer. Overview at `/`, backtests at `/backtests/`. Web-triggered backtests run via `run_backtest_web` management command in a subprocess.
-- **Django setup in CLI**: use `_setup_django()` from `pyfx/cli.py` instead of inline `os.environ.setdefault(...); django.setup()`. The helper is idempotent.
+- **Django setup in CLI**: use `_setup_django()` from `pyfx/cli.py` for Django init, or `_ensure_migrated()` to also run migrations once. Both are idempotent.
 - **mypy + Django stubs**: `django-stubs` is configured via `mypy_django_plugin.main` in `pyproject.toml`. NautilusTrader has no stubs — its imports use `ignore_missing_imports` in mypy overrides. Migrations are excluded from mypy checking.
 - **Strategy config classes**: extend NautilusTrader's `StrategyConfig` (msgspec.Struct), NOT Pydantic. Use `__struct_fields__` and `msgspec.structs.fields()` for introspection, not `model_fields`.
 - **pytest-django**: required for web tests. Configure via `DJANGO_SETTINGS_MODULE` in `pyproject.toml` `[tool.pytest.ini_options]`.
+- **Shared utilities**: `parse_strategy_params()` in `pyfx/core/types.py` (CLI + web), `load_backtest_data()` in `pyfx/data/loader.py` (CLI + management command), `save_backtest_result()` in `pyfx/web/dashboard/services.py` (CLI + management command), `find_strategy_config_class()` in `pyfx/strategies/loader.py` (runner + views)
 - **Strategy discovery**: checks BOTH entry points AND `PYFX_STRATEGIES_DIR` — strategies from either source are available
 - **NautilusTrader RSI range**: `RelativeStrengthIndex.value` returns 0.0–1.0 (not 0–100). Strategy thresholds must use 0.30/0.70 not 30/70
 - **Dukascopy data download**: `duka` Python package is broken; use `npx dukascopy-node` instead. Dukascopy may block certain IPs — use VPN if timeouts occur

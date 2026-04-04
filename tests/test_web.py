@@ -399,6 +399,22 @@ class BacktestStartViewTests(TestCase):
         run = BacktestRun.objects.latest("created_at")
         assert "~" not in run.data_file
 
+    @patch("pyfx.web.dashboard.views.subprocess.Popen")
+    def test_start_rejects_path_traversal(self, mock_popen):
+        resp = self.client.post("/backtests/start/", {
+            "strategy": "sample_sma",
+            "instrument": "EUR/USD",
+            "start": "2024-01-01",
+            "end": "2024-06-30",
+            "data_file": "../../etc/passwd",
+            "balance": "100000",
+            "leverage": "50",
+            "trade_size": "100000",
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+        })
+        assert resp.status_code == 400
+        mock_popen.assert_not_called()
+
 
 class BacktestNewViewTests(TestCase):
     def setUp(self):
@@ -1039,7 +1055,7 @@ class RunBacktestWebCommandTests(TestCase):
     @patch("pyfx.backtest.runner.run_backtest")
     @patch("pandas.read_parquet")
     def test_successful_run(self, mock_read_parquet, mock_run_bt):
-        from pyfx.core.types import BacktestResult
+        from pyfx.core.types import BacktestConfig, BacktestResult
 
         run = _create_run(
             status=BacktestRun.STATUS_RUNNING,
@@ -1054,6 +1070,10 @@ class RunBacktestWebCommandTests(TestCase):
         mock_read_parquet.return_value = mock_df
 
         mock_result = MagicMock(spec=BacktestResult)
+        mock_result.config = BacktestConfig(
+            strategy=run.strategy, instrument=run.instrument,
+            start=run.start, end=run.end,
+        )
         mock_result.total_pnl = 200.0
         mock_result.total_return_pct = 0.2
         mock_result.num_trades = 3
@@ -1144,7 +1164,7 @@ class RunBacktestWebCsvTests(TestCase):
     @patch("pyfx.backtest.runner.run_backtest")
     @patch("pandas.read_csv")
     def test_csv_data_file(self, mock_read_csv, mock_run_bt):
-        from pyfx.core.types import BacktestResult
+        from pyfx.core.types import BacktestConfig, BacktestResult
 
         run = _create_run(
             status=BacktestRun.STATUS_RUNNING,
@@ -1159,6 +1179,10 @@ class RunBacktestWebCsvTests(TestCase):
         mock_read_csv.return_value = mock_df
 
         mock_result = MagicMock(spec=BacktestResult)
+        mock_result.config = BacktestConfig(
+            strategy=run.strategy, instrument=run.instrument,
+            start=run.start, end=run.end,
+        )
         mock_result.total_pnl = 100.0
         mock_result.total_return_pct = 0.1
         mock_result.num_trades = 2
@@ -1247,17 +1271,17 @@ class RunBacktestWebCsvTests(TestCase):
 
 class FindStrategyConfigTests(TestCase):
     def test_find_config_for_sample_sma(self):
+        from pyfx.strategies.loader import find_strategy_config_class
         from pyfx.strategies.sample_sma import SMACrossStrategy
-        from pyfx.web.dashboard.views import _find_strategy_config
 
-        config_cls = _find_strategy_config(SMACrossStrategy)
+        config_cls = find_strategy_config_class(SMACrossStrategy)
         assert config_cls is not None
         assert "fast_period" in config_cls.__struct_fields__
 
     def test_find_config_returns_none_for_object(self):
-        from pyfx.web.dashboard.views import _find_strategy_config
+        from pyfx.strategies.loader import find_strategy_config_class
 
-        result = _find_strategy_config(object)
+        result = find_strategy_config_class(object)
         assert result is None
 
 

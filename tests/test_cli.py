@@ -14,6 +14,7 @@ import pytest
 from click.testing import CliRunner
 
 from pyfx.cli import _load_data, _parse_params, _save_to_django, _setup_django, main
+from pyfx.core.types import parse_strategy_params
 from pyfx.core.types import BacktestConfig, BacktestResult, EquityPoint, TradeRecord
 
 
@@ -37,6 +38,30 @@ class TestParseParams:
 
     def test_empty(self) -> None:
         assert _parse_params(()) == {}
+
+    def test_bool_values(self) -> None:
+        result = _parse_params(("flag=true", "other=false"))
+        assert result == {"flag": True, "other": False}
+
+
+class TestParseStrategyParams:
+    def test_tuple_input(self) -> None:
+        result = parse_strategy_params(("a=1", "b=2.5", "c=hello"))
+        assert result == {"a": 1, "b": 2.5, "c": "hello"}
+
+    def test_dict_input(self) -> None:
+        result = parse_strategy_params({"a": "1", "b": "2.5", "c": "hello"})
+        assert result == {"a": 1, "b": 2.5, "c": "hello"}
+
+    def test_bool_coercion(self) -> None:
+        result = parse_strategy_params({"flag": "true", "other": "False"})
+        assert result == {"flag": True, "other": False}
+
+    def test_empty_tuple(self) -> None:
+        assert parse_strategy_params(()) == {}
+
+    def test_empty_dict(self) -> None:
+        assert parse_strategy_params({}) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +119,11 @@ class TestLoadData:
         )
         assert len(result) == 1
 
+    def test_file_not_found(self, tmp_path: Path) -> None:
+        missing = tmp_path / "nonexistent.parquet"
+        with pytest.raises(SystemExit):
+            _load_data(missing, datetime(2024, 1, 1), datetime(2025, 1, 1))
+
     def test_empty_after_filter(self, tmp_path: Path) -> None:
         df = pd.DataFrame(
             {"open": [1.1], "high": [1.2], "low": [1.0], "close": [1.15], "volume": [100.0]},
@@ -116,6 +146,26 @@ class TestSetupDjango:
             _setup_django()
             assert os.environ["DJANGO_SETTINGS_MODULE"] == "pyfx.web.pyfx_web.settings"
             mock_setup.assert_called_once()
+
+
+class TestEnsureMigrated:
+    def test_ensure_migrated_caches(self) -> None:
+        import pyfx.cli as cli_module
+
+        original = cli_module._migrated
+        try:
+            cli_module._migrated = False
+            with patch("pyfx.cli._setup_django"), \
+                 patch("django.core.management.call_command") as mock_call:
+                cli_module._ensure_migrated()
+                assert cli_module._migrated is True
+                mock_call.assert_called_once()
+
+                # Second call should be a no-op
+                cli_module._ensure_migrated()
+                mock_call.assert_called_once()  # still just once
+        finally:
+            cli_module._migrated = original
 
 
 # ---------------------------------------------------------------------------
@@ -157,8 +207,7 @@ class TestSaveToDjango:
             equity_curve=[eq],
         )
         mock_run = MagicMock()
-        with patch("pyfx.cli._setup_django"), \
-             patch("django.core.management.call_command"), \
+        with patch("pyfx.cli._ensure_migrated"), \
              patch("pyfx.web.dashboard.models.BacktestRun") as MockRun, \
              patch("pyfx.web.dashboard.models.Trade") as MockTrade, \
              patch("pyfx.web.dashboard.models.EquitySnapshot") as MockSnap:
@@ -184,8 +233,7 @@ class TestSaveToDjango:
             win_rate=0.0,
             max_drawdown_pct=0.0,
         )
-        with patch("pyfx.cli._setup_django"), \
-             patch("django.core.management.call_command"), \
+        with patch("pyfx.cli._ensure_migrated"), \
              patch("pyfx.web.dashboard.models.BacktestRun") as MockRun, \
              patch("pyfx.web.dashboard.models.Trade"), \
              patch("pyfx.web.dashboard.models.EquitySnapshot"):
@@ -375,8 +423,7 @@ class TestIngestCommand:
 
 class TestWebCommand:
     def test_web_starts(self) -> None:
-        with patch("pyfx.cli._setup_django"), \
-             patch("django.core.management.call_command"), \
+        with patch("pyfx.cli._ensure_migrated"), \
              patch("pyfx.data.scanner.scan_data_directory", return_value=(2, 3)), \
              patch("django.core.management.execute_from_command_line") as mock_exec:
             runner = CliRunner()
@@ -387,8 +434,7 @@ class TestWebCommand:
             assert "--noreload" in argv
 
     def test_web_no_scan_results(self) -> None:
-        with patch("pyfx.cli._setup_django"), \
-             patch("django.core.management.call_command"), \
+        with patch("pyfx.cli._ensure_migrated"), \
              patch("pyfx.data.scanner.scan_data_directory", return_value=(0, 5)), \
              patch("django.core.management.execute_from_command_line"):
             runner = CliRunner()
@@ -444,8 +490,7 @@ class TestDataListCommand:
 
 class TestDataScanCommand:
     def test_data_scan(self) -> None:
-        with patch("pyfx.cli._setup_django"), \
-             patch("django.core.management.call_command"), \
+        with patch("pyfx.cli._ensure_migrated"), \
              patch("pyfx.data.scanner.scan_data_directory", return_value=(3, 2)):
             runner = CliRunner()
             result = runner.invoke(main, ["data", "scan"])

@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pyfx.backtest.runner import _resample_bars, run_backtest
+from pyfx.backtest.runner import run_backtest
+from pyfx.data.resample import resample_bars
 from pyfx.core.types import BacktestConfig
 from pyfx.strategies.coban_reborn import (
     _ZERO_TS,
@@ -286,7 +287,7 @@ class TestTimestampHelpers:
 class TestResampleBars:
     def test_resample_60_minute(self):
         df = _make_bars(120)  # 120 M1 bars = 2 hours
-        result = _resample_bars(df, "60-MINUTE-LAST-EXTERNAL")
+        result = resample_bars(df, "60-MINUTE-LAST-EXTERNAL")
         assert len(result) == 2
         assert list(result.columns) == ["open", "high", "low", "close", "volume"]
         # First hour: open should be first bar's open
@@ -296,19 +297,19 @@ class TestResampleBars:
 
     def test_resample_120_minute(self):
         df = _make_bars(240)
-        result = _resample_bars(df, "120-MINUTE-LAST-EXTERNAL")
+        result = resample_bars(df, "120-MINUTE-LAST-EXTERNAL")
         assert len(result) == 2
 
     def test_resample_no_volume(self):
         df = _make_bars(120).drop(columns=["volume"])
-        result = _resample_bars(df, "60-MINUTE-LAST-EXTERNAL")
+        result = resample_bars(df, "60-MINUTE-LAST-EXTERNAL")
         assert len(result) == 2
         assert "volume" not in result.columns
 
     def test_unsupported_aggregation(self):
         df = _make_bars(10)
         with pytest.raises(ValueError, match="Unsupported aggregation"):
-            _resample_bars(df, "60-WEEK-LAST-EXTERNAL")
+            resample_bars(df, "60-WEEK-LAST-EXTERNAL")
 
     def test_resample_second(self):
         df = pd.DataFrame(
@@ -320,18 +321,18 @@ class TestResampleBars:
             },
             index=pd.date_range("2024-01-01", periods=4, freq="1s", tz="UTC"),
         )
-        result = _resample_bars(df, "2-SECOND-LAST-EXTERNAL")
+        result = resample_bars(df, "2-SECOND-LAST-EXTERNAL")
         assert len(result) == 2
 
     def test_resample_hour(self):
         df = _make_bars(120)
-        result = _resample_bars(df, "1-HOUR-LAST-EXTERNAL")
+        result = resample_bars(df, "1-HOUR-LAST-EXTERNAL")
         assert len(result) == 2
 
     def test_resample_day(self):
         n = 60 * 24 * 2  # 2 days of M1
         df = _make_bars(n)
-        result = _resample_bars(df, "1-DAY-LAST-EXTERNAL")
+        result = resample_bars(df, "1-DAY-LAST-EXTERNAL")
         assert len(result) >= 1
 
 

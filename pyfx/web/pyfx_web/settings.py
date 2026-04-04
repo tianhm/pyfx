@@ -5,8 +5,8 @@ from pyfx.core.config import settings as pyfx_settings
 pyfx_settings.db_path.parent.mkdir(parents=True, exist_ok=True)
 
 SECRET_KEY = pyfx_settings.secret_key
-DEBUG = True
-ALLOWED_HOSTS = ["*"]
+DEBUG = pyfx_settings.debug
+ALLOWED_HOSTS = pyfx_settings.allowed_hosts
 
 INSTALLED_APPS = [
     "django.contrib.contenttypes",

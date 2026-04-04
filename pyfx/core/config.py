@@ -45,6 +45,11 @@ class PyfxSettings(BaseSettings):
         default="pyfx-dev-secret-change-in-production",
         description="Django secret key",
     )
+    debug: bool = Field(default=True, description="Django DEBUG mode")
+    allowed_hosts: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Django ALLOWED_HOSTS",
+    )
 
 
 settings = PyfxSettings()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -12,6 +13,19 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .models import BacktestRun, Dataset, EquitySnapshot, Trade
+
+_DJANGO_SETTINGS_MODULE = "pyfx.web.pyfx_web.settings"
+
+
+def _spawn_management_command(command: str, *args: str) -> None:
+    """Spawn a Django management command as a detached subprocess."""
+    cmd = [sys.executable, "-m", "django", command, *args]
+    subprocess.Popen(  # noqa: S603
+        cmd,
+        env={**os.environ, "DJANGO_SETTINGS_MODULE": _DJANGO_SETTINGS_MODULE},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def overview(request: HttpRequest) -> HttpResponse:
@@ -146,7 +160,7 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
         strat_cls = _get_strat(run.strategy, None)
         if hasattr(strat_cls, "chart_indicators"):
             chart_indicators = strat_cls.chart_indicators()
-    except Exception:  # noqa: BLE001
+    except (KeyError, ImportError, AttributeError):
         pass
 
     return render(request, "dashboard/backtest_detail.html", {
@@ -193,19 +207,7 @@ def backtest_rerun(request: HttpRequest, pk: int) -> HttpResponse:
         data_file=original.data_file,
     )
 
-    cmd = [
-        sys.executable, "-m", "django", "run_backtest_web",
-        "--run-id", str(run.pk),
-    ]
-    subprocess.Popen(  # noqa: S603
-        cmd,
-        env={
-            **__import__("os").environ,
-            "DJANGO_SETTINGS_MODULE": "pyfx.web.pyfx_web.settings",
-        },
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    _spawn_management_command("run_backtest_web", "--run-id", str(run.pk))
 
     return redirect("dashboard:backtest_list")
 
@@ -233,26 +235,21 @@ def backtest_start(request: HttpRequest) -> HttpResponse:
     bar_type = request.POST.get("bar_type", "1-MINUTE-LAST-EXTERNAL").strip()
 
     # Collect strategy params
-    strategy_params: dict[str, object] = {}
-    for key in request.POST:
-        if key.startswith("param_"):
-            param_name = key[6:]
-            raw = str(request.POST[key])
-            if raw.lower() in ("true", "false"):
-                strategy_params[param_name] = raw.lower() == "true"
-            else:
-                try:
-                    strategy_params[param_name] = int(raw)
-                except ValueError:
-                    try:
-                        strategy_params[param_name] = float(raw)
-                    except ValueError:
-                        strategy_params[param_name] = raw
+    from pyfx.core.types import parse_strategy_params
+
+    raw_params = {
+        key[6:]: str(request.POST[key])
+        for key in request.POST
+        if key.startswith("param_")
+    }
+    strategy_params: dict[str, bool | int | float | str] = parse_strategy_params(raw_params)
 
     start_dt = datetime.fromisoformat(start_str)
     end_dt = datetime.fromisoformat(end_str)
 
-    # Expand ~ in data_file path
+    # Expand ~ in data_file path and reject path traversal attempts
+    if ".." in Path(data_file).parts:
+        return HttpResponse("Invalid data file path", status=400)
     expanded_path = str(Path(data_file).expanduser())
 
     run = BacktestRun.objects.create(
@@ -270,19 +267,7 @@ def backtest_start(request: HttpRequest) -> HttpResponse:
     )
 
     # Spawn subprocess to run the backtest
-    cmd = [
-        sys.executable, "-m", "django", "run_backtest_web",
-        "--run-id", str(run.pk),
-    ]
-    subprocess.Popen(  # noqa: S603
-        cmd,
-        env={
-            **__import__("os").environ,
-            "DJANGO_SETTINGS_MODULE": "pyfx.web.pyfx_web.settings",
-        },
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    _spawn_management_command("run_backtest_web", "--run-id", str(run.pk))
 
     return redirect("dashboard:backtest_list")
 
@@ -292,7 +277,7 @@ def api_strategies(request: HttpRequest) -> JsonResponse:
     import msgspec.structs
 
     from pyfx.strategies.base import PyfxStrategyConfig
-    from pyfx.strategies.loader import discover_strategies
+    from pyfx.strategies.loader import discover_strategies, find_strategy_config_class
 
     strategies = discover_strategies()
     base_fields = set(PyfxStrategyConfig.__struct_fields__)
@@ -301,7 +286,7 @@ def api_strategies(request: HttpRequest) -> JsonResponse:
     for name, cls in sorted(strategies.items()):
         params = []
         try:
-            config_cls = _find_strategy_config(cls)
+            config_cls = find_strategy_config_class(cls)
             if config_cls is not None:  # pragma: no branch
                 for field_info in msgspec.structs.fields(config_cls):
                     if field_info.name in base_fields:
@@ -327,7 +312,7 @@ def api_strategies(request: HttpRequest) -> JsonResponse:
                         "default": default,
                         "category": _categorize_param(field_info.name),
                     })
-        except Exception:  # noqa: BLE001
+        except (KeyError, ImportError, AttributeError, TypeError):
             pass
 
         result.append({"name": name, "params": params})
@@ -354,34 +339,6 @@ def _categorize_param(name: str) -> str:
     if name.startswith(("session_", "max_signal_")) or "confirm" in name:
         return "timing"
     return "advanced"
-
-
-def _find_strategy_config(strategy_cls: type) -> type | None:
-    """Find the config class for a strategy via __init__ signature or module scan."""
-    import importlib
-    import inspect
-
-    sig = inspect.signature(strategy_cls.__init__)  # type: ignore[misc]
-    for param in sig.parameters.values():
-        if param.name == "config" and param.annotation != inspect.Parameter.empty:
-            ann = param.annotation
-            if isinstance(ann, str):
-                module = importlib.import_module(strategy_cls.__module__)
-                result: type | None = getattr(module, ann, None)
-                return result
-            return ann  # type: ignore[no-any-return]
-
-    module = importlib.import_module(strategy_cls.__module__)
-    for attr_name in dir(module):
-        attr = getattr(module, attr_name)
-        if (
-            isinstance(attr, type)
-            and attr_name.endswith("Config")
-            and attr_name != "StrategyConfig"
-        ):
-            return attr
-
-    return None
 
 
 _VALID_TIMEFRAMES = {
@@ -695,19 +652,7 @@ def dataset_start(request: HttpRequest) -> HttpResponse:
         status=Dataset.STATUS_DOWNLOADING,
     )
 
-    cmd = [
-        sys.executable, "-m", "django", "run_download_web",
-        "--dataset-id", str(dataset.pk),
-    ]
-    subprocess.Popen(  # noqa: S603
-        cmd,
-        env={
-            **__import__("os").environ,
-            "DJANGO_SETTINGS_MODULE": "pyfx.web.pyfx_web.settings",
-        },
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    _spawn_management_command("run_download_web", "--dataset-id", str(dataset.pk))
 
     return redirect("dashboard:dataset_list")
 
@@ -739,19 +684,7 @@ def dataset_redownload(request: HttpRequest, pk: int) -> HttpResponse:
     dataset.error_message = ""
     dataset.save()
 
-    cmd = [
-        sys.executable, "-m", "django", "run_download_web",
-        "--dataset-id", str(dataset.pk),
-    ]
-    subprocess.Popen(  # noqa: S603
-        cmd,
-        env={
-            **__import__("os").environ,
-            "DJANGO_SETTINGS_MODULE": "pyfx.web.pyfx_web.settings",
-        },
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    _spawn_management_command("run_download_web", "--dataset-id", str(dataset.pk))
 
     return JsonResponse({"ok": True})
 

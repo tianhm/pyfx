@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -22,8 +23,8 @@ from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from pyfx.core.config import settings
 from pyfx.core.instruments import get_instrument_spec
 from pyfx.core.types import BacktestConfig, BacktestResult, EquityPoint, TradeRecord
-from pyfx.data.resample import resample_bars as _resample_bars_shared
-from pyfx.strategies.loader import get_strategy
+from pyfx.data.resample import resample_bars
+from pyfx.strategies.loader import find_strategy_config_class, get_strategy
 
 
 def _to_utc_datetime(value: object) -> datetime:
@@ -66,14 +67,6 @@ def _parse_nautilus_money(value: object) -> tuple[float, str]:
     if parts:
         return float(parts[0]), "USD"
     return 0.0, "USD"
-
-
-def _resample_bars(bars_df: pd.DataFrame, bar_type_str: str) -> pd.DataFrame:
-    """Resample OHLCV bars to a higher timeframe.
-
-    Delegates to the shared ``pyfx.data.resample`` module.
-    """
-    return _resample_bars_shared(bars_df, bar_type_str)
 
 
 def _get_instrument(instrument_str: str, venue: str) -> Any:
@@ -203,7 +196,7 @@ def run_backtest(
             prob_fill_on_limit=1.0,
             prob_slippage=0.9,
             random_seed=config.random_seed if config.random_seed is not None else int.from_bytes(
-                __import__("os").urandom(4), "big",
+                os.urandom(4), "big",
             ),
         ),
     )
@@ -221,7 +214,7 @@ def run_backtest(
         extra_bt_list: list[BarType] = []
         for extra_bt_str in config.extra_bar_types:
             extra_bt = BarType.from_str(f"{instrument.id}-{extra_bt_str}")
-            resampled_df = _resample_bars(bars_df, extra_bt_str)
+            resampled_df = resample_bars(bars_df, extra_bt_str)
             extra_wrangler = BarDataWrangler(extra_bt, instrument)
             extra_bars = extra_wrangler.process(resampled_df)
             engine.add_data(extra_bars, sort=False)
@@ -231,7 +224,9 @@ def run_backtest(
     engine.sort_data()
 
     strategy_cls = get_strategy(config.strategy, settings.strategies_dir)
-    config_cls = _find_config_class(strategy_cls)
+    config_cls = find_strategy_config_class(strategy_cls)
+    if config_cls is None:  # pragma: no cover — tested via find_strategy_config_class
+        raise ValueError(f"Could not find config class for strategy {strategy_cls.__name__}")
 
     # strategy_params may contain trade_size from -p flag; let it override
     params = dict(config.strategy_params)
@@ -256,39 +251,6 @@ def run_backtest(
     engine.dispose()
 
     return result
-
-
-def _find_config_class(strategy_cls: type) -> type:
-    """Find the StrategyConfig class associated with a strategy.
-
-    First checks the ``config`` parameter annotation on ``__init__``.
-    Falls back to scanning the module for a class whose name ends with
-    ``Config`` (excluding the base ``StrategyConfig``).
-    """
-    import importlib
-    import inspect
-
-    sig = inspect.signature(strategy_cls)
-    for param in sig.parameters.values():  # pragma: no branch
-        if param.name == "config" and param.annotation != inspect.Parameter.empty:
-            ann = param.annotation
-            if isinstance(ann, str):
-                module = importlib.import_module(strategy_cls.__module__)
-                resolved: type = getattr(module, ann)
-                return resolved
-            return ann  # type: ignore[no-any-return]
-
-    module = importlib.import_module(strategy_cls.__module__)
-    for attr_name in dir(module):
-        attr = getattr(module, attr_name)
-        if (
-            isinstance(attr, type)
-            and attr_name.endswith("Config")
-            and attr_name != "StrategyConfig"
-        ):
-            return attr
-
-    raise ValueError(f"Could not find config class for strategy {strategy_cls.__name__}")
 
 
 def _convert_pnl_to_usd(
@@ -330,7 +292,7 @@ def _extract_results(
     if num_trades > 0:
         # Extract individual trades with currency-aware P&L conversion
         usd_pnl_values: list[float] = []
-        for _, row in positions_report.iterrows():
+        for row in positions_report.to_dict(orient="records"):
             raw_pnl, pnl_currency = _parse_nautilus_money(row["realized_pnl"])
             raw_return, _ = _parse_nautilus_money(row.get("realized_return", "0"))
             close_price, _ = _parse_nautilus_money(row.get("avg_px_close", "0"))
