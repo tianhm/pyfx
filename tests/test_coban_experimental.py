@@ -347,6 +347,13 @@ class TestEntryModes:
         result = _run_experimental(bars_df, {"entry_mode": "trend_follow"})
         assert isinstance(result.total_pnl, float)
 
+    def test_next_bar_entry_runs(self):
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        result = _run_experimental(
+            bars_df, {"entry_mode": "trend_follow", "next_bar_entry": True},
+        )
+        assert isinstance(result.total_pnl, float)
+
     def test_full_is_alias_for_relaxed(self):
         """Full and relaxed should produce identical results (same logic)."""
         bars_df = _make_oscillating_bars(20000, seed=42)

@@ -781,6 +781,8 @@ class TestTrendFollowEntry:
         s._h1_sma_cross_ts = ts
         s._h1_current_hist = 0.001
         s._h1_current_rsi = 0.60
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts
         result = s._entry_trend_follow(ts, cfg)
         assert result == 1
 
@@ -792,6 +794,8 @@ class TestTrendFollowEntry:
         s._h1_sma_cross_ts = ts
         s._h1_current_hist = -0.001
         s._h1_current_rsi = 0.40
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts
         result = s._entry_trend_follow(ts, cfg)
         assert result == -1
 
@@ -802,6 +806,8 @@ class TestTrendFollowEntry:
         s._h1_sma_cross_dir = 0
         s._h1_current_hist = 0.001
         s._h1_current_rsi = 0.60
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts
         assert s._entry_trend_follow(ts, cfg) == 0
 
     def test_no_signal_when_sma_expired(self):
@@ -812,6 +818,8 @@ class TestTrendFollowEntry:
         s._h1_sma_cross_ts = ts - 4000_000_000_000  # 4000s ago > 3600s
         s._h1_current_hist = 0.001
         s._h1_current_rsi = 0.60
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts
         assert s._entry_trend_follow(ts, cfg) == 0
 
     def test_no_long_when_macd_negative(self):
@@ -822,6 +830,8 @@ class TestTrendFollowEntry:
         s._h1_sma_cross_ts = ts
         s._h1_current_hist = -0.001  # MACD says bearish
         s._h1_current_rsi = 0.60
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts
         assert s._entry_trend_follow(ts, cfg) == 0
 
     def test_no_long_when_rsi_below_threshold(self):
@@ -832,6 +842,8 @@ class TestTrendFollowEntry:
         s._h1_sma_cross_ts = ts
         s._h1_current_hist = 0.001
         s._h1_current_rsi = 0.40  # RSI says bearish
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts
         assert s._entry_trend_follow(ts, cfg) == 0
 
     def test_no_short_when_macd_positive(self):
@@ -842,6 +854,8 @@ class TestTrendFollowEntry:
         s._h1_sma_cross_ts = ts
         s._h1_current_hist = 0.001  # MACD says bullish
         s._h1_current_rsi = 0.40
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts
         assert s._entry_trend_follow(ts, cfg) == 0
 
     def test_no_short_when_rsi_above_threshold(self):
@@ -852,6 +866,34 @@ class TestTrendFollowEntry:
         s._h1_sma_cross_ts = ts
         s._h1_current_hist = -0.001
         s._h1_current_rsi = 0.60  # RSI says bullish
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts
+        assert s._entry_trend_follow(ts, cfg) == 0
+
+    def test_no_signal_when_hist_stale(self):
+        """Reject entry when MACD histogram is older than staleness window."""
+        s = self._make_strategy(filter_staleness_seconds=7200)
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = 1
+        s._h1_sma_cross_ts = ts
+        s._h1_current_hist = 0.001
+        s._h1_current_rsi = 0.60
+        s._h1_hist_ts = ts - 8000_000_000_000  # 8000s ago > 7200s
+        s._h1_rsi_ts = ts
+        assert s._entry_trend_follow(ts, cfg) == 0
+
+    def test_no_signal_when_rsi_stale(self):
+        """Reject entry when RSI value is older than staleness window."""
+        s = self._make_strategy(filter_staleness_seconds=7200)
+        cfg: CobanRebornConfig = s.config  # type: ignore[assignment]
+        ts = 1_000_000_000_000
+        s._h1_sma_cross_dir = 1
+        s._h1_sma_cross_ts = ts
+        s._h1_current_hist = 0.001
+        s._h1_current_rsi = 0.60
+        s._h1_hist_ts = ts
+        s._h1_rsi_ts = ts - 8000_000_000_000  # 8000s ago > 7200s
         assert s._entry_trend_follow(ts, cfg) == 0
 
 
@@ -1120,3 +1162,60 @@ class TestNewModeIntegration:
         )
         result = run_backtest(config, bars_df)
         assert isinstance(result.total_pnl, float)
+
+    def test_next_bar_entry_runs(self):
+        """next_bar_entry defers entry to the following M1 bar."""
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        config = BacktestConfig(
+            strategy="coban_reborn",
+            instrument="EUR/USD",
+            start=bars_df.index[0].to_pydatetime(),
+            end=bars_df.index[-1].to_pydatetime(),
+            bar_type="1-MINUTE-LAST-EXTERNAL",
+            extra_bar_types=[
+                "60-MINUTE-LAST-EXTERNAL",
+                "120-MINUTE-LAST-EXTERNAL",
+            ],
+            trade_size=Decimal("100000"),
+            strategy_params={
+                "entry_mode": "trend_follow",
+                "next_bar_entry": True,
+            },
+        )
+        result = run_backtest(config, bars_df)
+        assert isinstance(result.total_pnl, float)
+        assert isinstance(result.num_trades, int)
+
+    def test_next_bar_entry_differs_from_immediate(self):
+        """next_bar_entry should produce different results than immediate entry."""
+        bars_df = _make_oscillating_bars(20000, seed=42)
+        base_params: dict = {
+            "strategy": "coban_reborn",
+            "instrument": "EUR/USD",
+            "start": bars_df.index[0].to_pydatetime(),
+            "end": bars_df.index[-1].to_pydatetime(),
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+            "extra_bar_types": [
+                "60-MINUTE-LAST-EXTERNAL",
+                "120-MINUTE-LAST-EXTERNAL",
+            ],
+            "trade_size": Decimal("100000"),
+        }
+        immediate = run_backtest(
+            BacktestConfig(**base_params, strategy_params={
+                "entry_mode": "trend_follow",
+                "next_bar_entry": False,
+            }),
+            bars_df,
+        )
+        deferred = run_backtest(
+            BacktestConfig(**base_params, strategy_params={
+                "entry_mode": "trend_follow",
+                "next_bar_entry": True,
+            }),
+            bars_df,
+        )
+        # Both should produce trades, but P&L should differ
+        assert immediate.num_trades > 0
+        assert deferred.num_trades > 0
+        assert immediate.total_pnl != deferred.total_pnl
