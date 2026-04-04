@@ -226,7 +226,9 @@ def run_backtest(
         fill_model=FillModel(
             prob_fill_on_limit=1.0,
             prob_slippage=0.5,
-            random_seed=42,
+            random_seed=config.random_seed if config.random_seed is not None else int.from_bytes(
+                __import__("os").urandom(4), "big",
+            ),
         ),
     )
 

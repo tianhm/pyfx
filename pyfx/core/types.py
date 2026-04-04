@@ -26,6 +26,10 @@ class BacktestConfig(BaseModel):
     leverage: float = 50.0
     venue: str = "SIM"
     strategy_params: dict = Field(default_factory=dict)
+    random_seed: int | None = Field(
+        default=42,
+        description="Random seed for slippage model (None = random each run)",
+    )
 
 
 class TradeRecord(BaseModel):

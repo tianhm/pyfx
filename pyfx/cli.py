@@ -34,6 +34,10 @@ def main() -> None:
 @click.option("--log-level", default="ERROR", help="NautilusTrader log level")
 @click.option("--save/--no-save", default=False, help="Save results to Django database")
 @click.option(
+    "--seed", default=42, type=int,
+    help="Random seed for slippage model (0 = random each run)",
+)
+@click.option(
     "--param", "-p", multiple=True,
     help="Strategy param as key=value (e.g. -p fast_period=10)",
 )
@@ -50,6 +54,7 @@ def backtest(
     data_file: Path | None,
     log_level: str,
     save: bool,
+    seed: int,
     param: tuple[str, ...],
 ) -> None:
     """Run a backtest."""
@@ -70,6 +75,7 @@ def backtest(
         balance=balance,
         leverage=leverage,
         strategy_params=strategy_params,
+        random_seed=seed if seed != 0 else None,
     )
 
     bars_df = _load_data(data_file, start, end)
