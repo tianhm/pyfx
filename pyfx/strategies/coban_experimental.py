@@ -83,12 +83,19 @@ class CobanExperimentalConfig(PyfxStrategyConfig, frozen=True):
     # Signal window
     max_signal_window_seconds: int = 3600
 
+    # Filter staleness window — how long MACD/RSI filter values remain valid
+    # in trend_follow mode (default: 2 H1 bars = 7200s)
+    filter_staleness_seconds: int = 7200
+
     # RSI trendline params
     rsi_buffer_size: int = 100
     rsi_min_peak_diff: int = 2
 
     # RSI level filter threshold (for "rsi_level" mode)
     rsi_level_threshold: float = 0.50
+
+    # Entry timing: defer entry to next bar open (more realistic)
+    next_bar_entry: bool = False
 
     trade_size: Decimal = Decimal("100000")
 
@@ -190,6 +197,11 @@ class CobanExperimentalStrategy(PyfxStrategy):
         # Current H1 MACD histogram and RSI (for filter modes)
         self._h1_current_hist: float = 0.0
         self._h1_current_rsi: float = 0.0
+        self._h1_hist_ts: int = _ZERO_TS
+        self._h1_rsi_ts: int = _ZERO_TS
+
+        # Deferred entry (next_bar_entry mode)
+        self._deferred_direction: int = 0
 
     def on_start(self) -> None:
         cfg: CobanExperimentalConfig = self.config
@@ -260,6 +272,7 @@ class CobanExperimentalStrategy(PyfxStrategy):
 
         # Track current RSI for filter modes
         self._h1_current_rsi = self._h1_rsi.value
+        self._h1_rsi_ts = ts
 
         # 1. SMA crossover
         sma_diff = self._h1_sma_fast.value - self._h1_sma_slow.value
@@ -284,6 +297,7 @@ class CobanExperimentalStrategy(PyfxStrategy):
                 )
             hist = macd_line - self._h1_macd_signal
             self._h1_current_hist = hist
+            self._h1_hist_ts = ts
 
             # MACD reversal exit
             if (
@@ -349,6 +363,14 @@ class CobanExperimentalStrategy(PyfxStrategy):
         cfg: CobanExperimentalConfig = self.config
         ts = bar.ts_init
 
+        # Execute deferred entry from previous bar (next_bar_entry mode)
+        if self._deferred_direction != 0 and self.flat():
+            self._execute_entry(self._deferred_direction)
+            self._deferred_direction = 0
+            return
+
+        self._deferred_direction = 0  # clear stale deferred if now in trade
+
         # Exit logic (if in a trade)
         if not self.flat():
             if self._check_exit(bar, cfg):
@@ -365,12 +387,20 @@ class CobanExperimentalStrategy(PyfxStrategy):
         if direction == 0:
             return
 
+        if cfg.next_bar_entry:
+            self._deferred_direction = direction
+            self._reset_signals()
+        else:
+            self._execute_entry(direction)
+            self._reset_signals()
+
+    def _execute_entry(self, direction: int) -> None:
+        """Submit a market order for the given direction."""
         self._trade_direction = direction
         if direction == 1:
             self.market_buy()
         else:
             self.market_sell()
-        self._reset_signals()
 
     # -- Entry logic (mode-dependent) ----------------------------------------
 
@@ -470,6 +500,10 @@ class CobanExperimentalStrategy(PyfxStrategy):
         ):
             return 0
 
+        # Reject stale RSI values
+        if not _is_fresh(self._h1_rsi_ts, ts, cfg.filter_staleness_seconds):
+            return 0
+
         direction = self._h1_sma_cross_dir
         threshold = cfg.rsi_level_threshold
         if direction == 1 and self._h1_current_rsi <= threshold:
@@ -484,6 +518,13 @@ class CobanExperimentalStrategy(PyfxStrategy):
         if self._h1_sma_cross_dir == 0:
             return 0
         if not _is_fresh(self._h1_sma_cross_ts, ts, window):
+            return 0
+
+        # Filter staleness — reject stale MACD/RSI values
+        stale_window = cfg.filter_staleness_seconds
+        if not _is_fresh(self._h1_hist_ts, ts, stale_window):
+            return 0
+        if not _is_fresh(self._h1_rsi_ts, ts, stale_window):
             return 0
 
         direction = self._h1_sma_cross_dir
@@ -657,3 +698,5 @@ class CobanExperimentalStrategy(PyfxStrategy):
         self._macd_reversal_count = 0
         self._best_price = 0.0
         self._entry_atr = 0.0
+        # Note: do NOT reset _deferred_direction here — it's set BEFORE
+        # _reset_signals() in next_bar_entry mode and must survive the reset.

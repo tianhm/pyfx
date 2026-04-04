@@ -47,6 +47,8 @@ research/
 scripts/
   coban_sweep.py             # 10-variation backtest sweep (EUR/USD)
   coban_multi_pair.py        # Multi-pair sweep (5 instruments)
+  param_sensitivity.py       # Parameter sensitivity sweep (perturb +/- 40%)
+  walk_forward.py            # Walk-forward analysis (rolling 3-month windows)
 tests/
   conftest.py                # pytest-django configuration
   test_loader.py             # Strategy discovery tests
@@ -152,11 +154,14 @@ All new code must include tests. No exceptions.
 - **MACD histogram**: NautilusTrader's `MovingAverageConvergenceDivergence` only provides the MACD line (`.value`), not the signal line or histogram. Compute these manually using two EMAs + a signal-line EMA.
 - **NautilusTrader indicators import**: Use `from nautilus_trader.indicators import RelativeStrengthIndex, SimpleMovingAverage, ExponentialMovingAverage` (top-level `indicators` module, not submodules like `indicators.rsi`)
 - **Worktree merge**: must `cd /Users/joseph/Coding/private/pyfx-cli` to merge since `master` is checked out there
-- **Backtest realism**: Runner uses `FillModel(prob_slippage=0.5, random_seed=42)` for 50% chance of 1-tick slippage on fills. Exit TP/SL checks use bar high/low (not close) for realistic intra-bar fills. `MakerTakerFeeModel` fees are low (0.002%) — spreads are the real cost for FX.
+- **Backtest realism**: Runner uses `FillModel(prob_slippage=0.9, random_seed=42)` for 90% chance of 1-tick slippage on fills. Exit TP/SL checks use bar high/low (not close) for realistic intra-bar fills. `MakerTakerFeeModel` fees are low (0.002%) — spreads are the real cost for FX.
+- **Signal staleness**: Trend_follow mode timestamps MACD histogram and RSI values via `filter_staleness_seconds` (default 7200s = 2 H1 bars). Stale filter values are rejected to prevent trading on outdated signals.
+- **Next-bar entry**: `next_bar_entry=True` defers entry to the next M1 bar open (more realistic timing). Off by default. Produces different P&L than immediate entry — useful for measuring timing cost.
+- **XAU/USD is the primary instrument**: Out-of-sample testing (2024) showed EUR/USD PF 1.17 (too thin for live) vs XAU/USD PF 1.89. Gold's trending nature suits trend_follow. Focus live efforts on XAU/USD.
 - **CobanReborn defaults**: `entry_mode="trend_follow"`, `exit_mode="atr"`, 24h trading (`session_start_hour=0`, `session_end_hour=24`). Use `-p session_start_hour=8 -p session_end_hour=17` for EUR/GBP. The old `"full"` mode requires 5-layer confluence (often 0 trades). The `-p` CLI flag parses `true`/`false` as strings, not booleans — use `entry_mode=trend_follow` not boolean params via CLI.
 - **Non-FX instruments**: `TestInstrumentProvider.default_fx_ccy()` creates any pair with FX-style 5-decimal precision. For gold (XAU/USD ~$3000) and oil, the pip size (0.0001) is unrealistic — use ATR-based exits which auto-adapt to volatility. Fixed pip TP/SL need scaling (e.g., 300 pips for gold vs 10 for EUR/USD).
 - **Dukascopy CLI flags**: Use `--date-from`/`--date-to` (not `-s`/`-e`), `-t m1` for timeframe, `-v` for volumes, `-f csv` for format, `--directory .` to save in current dir. Instrument names: `eurusd`, `usdjpy`, `gbpusd`, `xauusd`, `lightcmdusd` (WTI), `usdchf`, `eurgbp`. `bcousd`/`brentcmdusd` returns empty data. `audusd`/`nzdusd` may fail (IP blocking — use VPN).
-- **Sweep scripts**: `scripts/coban_sweep.py` runs 10 entry/exit variations on EUR/USD. `scripts/coban_multi_pair.py` runs top variations across 5 instruments. Both import `run_backtest` directly — run with `uv run python scripts/coban_sweep.py`.
+- **Sweep scripts**: `scripts/coban_sweep.py` runs 10 entry/exit variations on EUR/USD. `scripts/coban_multi_pair.py` runs top variations across 5 instruments. `scripts/param_sensitivity.py` perturbs 7 key parameters +/- 40%. `scripts/walk_forward.py` runs rolling 3-month window analysis. All import `run_backtest` directly — run with `uv run python scripts/<name>.py`.
 
 ## Security
 
