@@ -1,132 +1,299 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}pyfx{% endblock %}</title>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    ox: {
+                        bg: '#080a0c',
+                        raise: '#0e1115',
+                        secondary: '#141820',
+                        hover: '#1a1f28',
+                        border: '#1e2530',
+                        'border-raise': '#2a3140',
+                    },
+                    txt: {
+                        raise: '#e4e8ee',
+                        DEFAULT: '#b4bcc8',
+                        secondary: '#7b8694',
+                        tertiary: '#4e5968',
+                        disabled: '#3a424e',
+                    },
+                    accent: {
+                        DEFAULT: '#48d597',
+                        dim: '#2a7d5a',
+                        bg: '#112a1e',
+                    },
+                    success: { DEFAULT: '#48d597', bg: '#112a1e' },
+                    error: { DEFAULT: '#e5484d', bg: '#2a1214' },
+                    warning: { DEFAULT: '#e5a63a', bg: '#2a2010' },
+                    info: { DEFAULT: '#52a9ff', bg: '#0f1a2a' },
+                },
+                fontFamily: {
+                    sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                    mono: ['"JetBrains Mono"', '"SF Mono"', 'ui-monospace', 'monospace'],
+                },
+                borderRadius: {
+                    sm: '2px',
+                    DEFAULT: '2px',
+                    md: '3px',
+                    lg: '4px',
+                },
+            },
+        },
+    };
+    </script>
     <style>
-        .sidebar-link { transition: all 0.15s ease; }
-        .sidebar-link:hover { background: rgba(255,255,255,0.06); }
-        .sidebar-link.active { background: rgba(99, 102, 241, 0.15); color: #818cf8; border-right: 3px solid #818cf8; }
-        .sidebar-link.active svg { color: #818cf8; }
-        /* Tabular numbers for aligned columns */
-        .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-        /* Clickable row left-border indicator */
-        tr.clickable-row { transition: background 0.1s ease; }
-        tr.clickable-row:hover { cursor: pointer; }
-        tr.clickable-row:hover td:first-child { box-shadow: inset 3px 0 0 #818cf8; }
-        /* Stat card hover */
-        .stat-card { border: 1px solid transparent; transition: border-color 0.15s ease; }
-        .stat-card:hover { border-color: rgba(99, 102, 241, 0.2); }
+        /* Base resets */
+        body { font-feature-settings: "cv02", "cv03", "cv04"; }
+        /* Tabular numbers for data columns */
+        .num { font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace; }
+        /* Section labels */
+        .section-label { font-family: "JetBrains Mono", monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #7b8694; }
+        .table-header { font-family: "JetBrains Mono", monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #4e5968; font-weight: 500; }
+        /* Clickable rows */
+        tr.clickable-row { transition: background 0.1s ease; cursor: pointer; }
+        tr.clickable-row:hover { background: #1a1f28; }
+        tr.clickable-row:hover td:first-child { box-shadow: inset 2px 0 0 #48d597; }
+        /* Card component */
+        .ox-card { background: #0e1115; border: 1px solid #1e2530; border-radius: 2px; }
+        .ox-card:hover { border-color: #2a3140; }
+        /* Stat card with left accent */
+        .ox-stat { background: #0e1115; border: 1px solid #1e2530; border-radius: 2px; border-left: 2px solid #2a3140; padding: 12px 16px; }
+        .ox-stat:hover { border-color: #2a3140; border-left-color: #48d597; }
+        .ox-stat-label { font-family: "JetBrains Mono", monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #4e5968; }
+        .ox-stat-value { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
+        /* Buttons */
+        .btn-accent { background: #48d597; color: #080a0c; font-weight: 500; border-radius: 2px; border: none; padding: 6px 16px; font-size: 13px; cursor: pointer; transition: opacity 0.15s; }
+        .btn-accent:hover { opacity: 0.85; }
+        .btn-accent:disabled { opacity: 0.4; cursor: default; }
+        .btn-ghost { background: transparent; color: #7b8694; border: none; border-radius: 2px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+        .btn-ghost:hover { background: #1a1f28; color: #b4bcc8; }
+        .btn-danger { background: transparent; color: #e5484d; border: none; border-radius: 2px; padding: 6px 12px; font-size: 13px; cursor: pointer; transition: all 0.15s; }
+        .btn-danger:hover { background: #2a1214; }
+        /* Badge/Tag */
+        .ox-badge { display: inline-flex; align-items: center; gap: 5px; font-family: "JetBrains Mono", monospace; font-size: 11px; padding: 2px 8px; border-radius: 2px; }
+        .ox-badge-accent { background: #112a1e; color: #48d597; }
+        .ox-badge-error { background: #2a1214; color: #e5484d; }
+        .ox-badge-info { background: #0f1a2a; color: #52a9ff; }
+        .ox-badge-ghost { background: #1a1f28; color: #7b8694; }
+        .ox-badge-warning { background: #2a2010; color: #e5a63a; }
+        /* Status dot */
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+        .status-dot-success { background: #48d597; }
+        .status-dot-error { background: #e5484d; }
+        .status-dot-info { background: #52a9ff; }
+        .status-dot-warning { background: #e5a63a; }
+        /* Inputs */
+        .ox-input { background: #0e1115; border: 1px solid #1e2530; border-radius: 2px; color: #e4e8ee; padding: 6px 10px; font-size: 13px; outline: none; transition: border-color 0.15s; }
+        .ox-input:focus { border-color: #48d597; }
+        .ox-input::placeholder { color: #4e5968; }
+        .ox-select { background: #0e1115; border: 1px solid #1e2530; border-radius: 2px; color: #e4e8ee; padding: 6px 10px; font-size: 13px; outline: none; cursor: pointer; }
+        .ox-select:focus { border-color: #48d597; }
+        /* Tab bar */
+        .ox-tab { font-family: "JetBrains Mono", monospace; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #4e5968; padding: 8px 16px; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.15s; background: none; border-top: none; border-left: none; border-right: none; }
+        .ox-tab:hover { color: #7b8694; }
+        .ox-tab-active { color: #48d597; border-bottom-color: #48d597; }
+        /* Progress bar */
+        .ox-progress-track { height: 3px; background: #1e2530; border-radius: 2px; overflow: hidden; }
+        .ox-progress-fill { height: 100%; background: #48d597; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        /* Alert/Banner */
+        .ox-alert { border-left: 2px solid; border-radius: 2px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; font-size: 13px; }
+        .ox-alert-info { border-color: #52a9ff; background: #0f1a2a; color: #52a9ff; }
+        .ox-alert-error { border-color: #e5484d; background: #2a1214; color: #e5484d; }
+        .ox-alert-warning { border-color: #e5a63a; background: #2a2010; color: #e5a63a; }
+        .ox-alert-success { border-color: #48d597; background: #112a1e; color: #48d597; }
+        /* Modal */
+        .ox-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50; display: flex; align-items: center; justify-content: center; }
+        .ox-modal { background: #0e1115; border: 1px solid #2a3140; border-radius: 2px; padding: 24px; max-width: 420px; width: 90%; }
+        /* Sidebar */
+        .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 8px 16px; font-size: 13px; color: #7b8694; border-left: 2px solid transparent; transition: all 0.15s; }
+        .sidebar-link:hover { color: #b4bcc8; background: rgba(255,255,255,0.03); }
+        .sidebar-link.active { color: #48d597; border-left-color: #48d597; background: #112a1e; }
+        .sidebar-link.active svg { color: #48d597; }
+        /* Code block */
+        .ox-code { background: #0e1115; border: 1px solid #1e2530; border-radius: 2px; font-family: "JetBrains Mono", monospace; font-size: 12px; padding: 16px; color: #7b8694; }
+        .ox-code .prefix { color: #48d597; user-select: none; }
+        /* Tooltip */
+        [data-tooltip] { position: relative; }
+        [data-tooltip]:hover::after { content: attr(data-tooltip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #141820; border: 1px solid #2a3140; color: #b4bcc8; font-size: 11px; font-family: "JetBrains Mono", monospace; padding: 4px 8px; border-radius: 2px; white-space: nowrap; z-index: 30; margin-bottom: 4px; }
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #2a3140; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3a424e; }
+        /* Animation */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-fade-in { animation: fadeIn 0.2s ease-out; }
+        .animate-pulse-dot { animation: pulseDot 1.5s ease-in-out infinite; }
+        .animate-spin { animation: spin 1s linear infinite; }
+        /* Toggle switch */
+        .ox-toggle { position: relative; width: 32px; height: 18px; appearance: none; background: #2a3140; border-radius: 9px; cursor: pointer; transition: background 0.15s; }
+        .ox-toggle:checked { background: #48d597; }
+        .ox-toggle::after { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #e4e8ee; top: 2px; left: 2px; transition: transform 0.15s; }
+        .ox-toggle:checked::after { transform: translateX(14px); }
+        /* Breadcrumbs */
+        .ox-breadcrumbs { font-family: "JetBrains Mono", monospace; font-size: 12px; color: #4e5968; }
+        .ox-breadcrumbs a { color: #7b8694; text-decoration: none; }
+        .ox-breadcrumbs a:hover { color: #48d597; }
+        .ox-breadcrumbs .separator { margin: 0 6px; }
+        /* Checkbox */
+        .ox-checkbox { width: 14px; height: 14px; appearance: none; background: #0e1115; border: 1px solid #2a3140; border-radius: 2px; cursor: pointer; position: relative; }
+        .ox-checkbox:checked { background: #48d597; border-color: #48d597; }
+        .ox-checkbox:checked::after { content: ''; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border: solid #080a0c; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+        /* Dropdown */
+        .ox-dropdown { position: relative; display: inline-block; }
+        .ox-dropdown-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: #141820; border: 1px solid #2a3140; border-radius: 2px; min-width: 180px; z-index: 20; padding: 4px; }
+        .ox-dropdown.open .ox-dropdown-menu { display: block; }
+        .ox-dropdown-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; color: #b4bcc8; cursor: pointer; border-radius: 2px; border: none; background: none; width: 100%; text-align: left; }
+        .ox-dropdown-item:hover { background: #1a1f28; }
+        .ox-dropdown-item.text-error { color: #e5484d; }
+        .ox-dropdown-item.text-error:hover { background: #2a1214; }
+        /* Loading spinner */
+        .ox-spinner { width: 14px; height: 14px; border: 2px solid #2a3140; border-top-color: #48d597; border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
-<body class="min-h-screen bg-base-200">
-    <div class="drawer lg:drawer-open">
-        <input id="sidebar-toggle" type="checkbox" class="drawer-toggle" />
-
-        <!-- Main content -->
-        <div class="drawer-content flex flex-col">
-            <!-- Top bar (mobile) -->
-            <div class="navbar bg-base-100 border-b border-base-300 lg:hidden">
-                <div class="flex-none">
-                    <label for="sidebar-toggle" class="btn btn-square btn-ghost">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="inline-block w-5 h-5 stroke-current">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+<body class="min-h-screen bg-ox-bg text-txt font-sans">
+    <div class="flex min-h-screen">
+        <!-- Sidebar (desktop) -->
+        <aside id="sidebar" class="hidden lg:flex flex-col w-56 min-h-screen bg-ox-secondary flex-shrink-0">
+            <!-- Brand -->
+            <div class="px-5 py-4">
+                <a href="{% url 'dashboard:overview' %}" class="flex items-center gap-2.5">
+                    <div class="w-7 h-7 rounded bg-accent-bg flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 text-accent" stroke-width="2">
+                            <path d="M3 3v18h18" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M7 16l4-8 4 4 4-8" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
-                    </label>
-                </div>
-                <div class="flex-1">
-                    <span class="text-lg font-bold tracking-tight">pyfx</span>
-                </div>
+                    </div>
+                    <div>
+                        <span class="text-sm font-semibold text-txt-raise tracking-tight">pyfx</span>
+                        <span class="block text-[10px] font-mono text-txt-tertiary uppercase tracking-wider -mt-0.5">Trading Lab</span>
+                    </div>
+                </a>
             </div>
 
-            <!-- Page content -->
-            <main class="flex-1 p-6 lg:p-8 max-w-7xl w-full mx-auto">
-                {% block content %}{% endblock %}
-            </main>
-        </div>
-
-        <!-- Sidebar -->
-        <div class="drawer-side z-40">
-            <label for="sidebar-toggle" aria-label="close sidebar" class="drawer-overlay"></label>
-            <aside class="w-64 min-h-screen bg-base-100 border-r border-base-300 flex flex-col">
-                <!-- Brand -->
-                <div class="px-6 py-5 border-b border-base-300">
-                    <a href="{% url 'dashboard:overview' %}" class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4 text-indigo-400" stroke-width="2">
-                                <path d="M3 3v18h18" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M7 16l4-8 4 4 4-8" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </div>
-                        <div>
-                            <span class="text-lg font-bold tracking-tight">pyfx</span>
-                            <span class="text-xs text-base-content/40 block -mt-0.5">Trading Lab</span>
-                        </div>
+            <!-- Navigation -->
+            <nav class="flex-1 py-2">
+                <a href="{% url 'dashboard:overview' %}"
+                   class="sidebar-link {% if active_nav == 'overview' %}active{% endif %}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="1.5">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/>
+                        <rect x="14" y="3" width="7" height="7" rx="1"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                        <rect x="14" y="14" width="7" height="7" rx="1"/>
+                    </svg>
+                    <span>Overview</span>
+                </a>
+                <a href="{% url 'dashboard:backtest_list' %}"
+                   class="sidebar-link {% if active_nav == 'backtests' %}active{% endif %}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="1.5">
+                        <path d="M9 19v-6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2zm0 0V9a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10m-6 0a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2m0 0V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Backtests</span>
+                </a>
+                <a href="{% url 'dashboard:dataset_list' %}"
+                   class="sidebar-link {% if active_nav == 'data' %}active{% endif %}">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="1.5">
+                        <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                    </svg>
+                    <span>Data</span>
+                </a>
+                <div class="px-4 mt-4">
+                    <a href="{% url 'dashboard:backtest_new' %}" class="btn-accent flex items-center justify-center gap-2 w-full text-center text-xs py-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
+                            <path d="M12 5v14m-7-7h14" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        New Backtest
                     </a>
                 </div>
+            </nav>
 
-                <!-- Navigation -->
-                <nav class="flex-1 px-3 py-4">
-                    <ul class="space-y-1">
-                        <li>
-                            <a href="{% url 'dashboard:overview' %}"
-                               class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium {% if active_nav == 'overview' %}active{% else %}text-base-content/70{% endif %}">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-5 h-5 opacity-70" stroke-width="1.5">
-                                    <rect x="3" y="3" width="7" height="7" rx="1"/>
-                                    <rect x="14" y="3" width="7" height="7" rx="1"/>
-                                    <rect x="3" y="14" width="7" height="7" rx="1"/>
-                                    <rect x="14" y="14" width="7" height="7" rx="1"/>
-                                </svg>
-                                Overview
-                            </a>
-                        </li>
-                        <li>
-                            <a href="{% url 'dashboard:backtest_list' %}"
-                               class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium {% if active_nav == 'backtests' %}active{% else %}text-base-content/70{% endif %}">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-5 h-5 opacity-70" stroke-width="1.5">
-                                    <path d="M9 19v-6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2zm0 0V9a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10m-6 0a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2m0 0V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                                Backtests
-                            </a>
-                        </li>
-                        <li>
-                            <a href="{% url 'dashboard:dataset_list' %}"
-                               class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium {% if active_nav == 'data' %}active{% else %}text-base-content/70{% endif %}">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-5 h-5 opacity-70" stroke-width="1.5">
-                                    <ellipse cx="12" cy="5" rx="9" ry="3"/>
-                                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-                                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-                                </svg>
-                                Data
-                            </a>
-                        </li>
-                    </ul>
-                    <div class="mt-4 px-1">
-                        <a href="{% url 'dashboard:backtest_new' %}" class="btn btn-primary btn-sm w-full gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
-                                <path d="M12 5v14m-7-7h14" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                            New Backtest
-                        </a>
-                    </div>
-                </nav>
-
-                <!-- Footer -->
-                <div class="px-4 py-3 border-t border-base-300">
-                    <div class="text-xs text-base-content/30 text-center">
-                        pyfx &middot; NautilusTrader
-                    </div>
+            <!-- Footer -->
+            <div class="px-5 py-3">
+                <div class="text-[10px] font-mono text-txt-disabled text-center">
+                    pyfx / NautilusTrader
                 </div>
+            </div>
+        </aside>
+
+        <!-- Mobile top bar -->
+        <div id="mobile-bar" class="lg:hidden fixed top-0 left-0 right-0 z-30 bg-ox-secondary px-4 py-3 flex items-center justify-between">
+            <button id="mobile-menu-btn" class="btn-ghost p-1">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="w-5 h-5 stroke-current" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
+                </svg>
+            </button>
+            <span class="text-sm font-semibold text-txt-raise tracking-tight">pyfx</span>
+            <div class="w-7"></div>
+        </div>
+
+        <!-- Mobile sidebar overlay -->
+        <div id="mobile-sidebar" class="hidden fixed inset-0 z-40">
+            <div id="mobile-overlay" class="absolute inset-0 bg-black/60"></div>
+            <aside class="absolute left-0 top-0 bottom-0 w-56 bg-ox-secondary flex flex-col animate-fade-in">
+                <div class="px-5 py-4 flex items-center justify-between">
+                    <span class="text-sm font-semibold text-txt-raise tracking-tight">pyfx</span>
+                    <button id="mobile-close-btn" class="btn-ghost p-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
+                            <path d="M18 6L6 18M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+                <nav class="flex-1 py-2">
+                    <a href="{% url 'dashboard:overview' %}" class="sidebar-link {% if active_nav == 'overview' %}active{% endif %}">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                        <span>Overview</span>
+                    </a>
+                    <a href="{% url 'dashboard:backtest_list' %}" class="sidebar-link {% if active_nav == 'backtests' %}active{% endif %}">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="1.5"><path d="M9 19v-6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2zm0 0V9a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10m-6 0a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2m0 0V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <span>Backtests</span>
+                    </a>
+                    <a href="{% url 'dashboard:dataset_list' %}" class="sidebar-link {% if active_nav == 'data' %}active{% endif %}">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                        <span>Data</span>
+                    </a>
+                </nav>
             </aside>
         </div>
+
+        <!-- Main content -->
+        <main class="flex-1 min-w-0 lg:pt-0 pt-14">
+            <div class="max-w-6xl mx-auto px-5 py-6 lg:px-8 lg:py-8">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
     </div>
 
     <script>
+    // ── Mobile sidebar toggle ──
+    (function() {
+        var menuBtn = document.getElementById('mobile-menu-btn');
+        var closeBtn = document.getElementById('mobile-close-btn');
+        var sidebar = document.getElementById('mobile-sidebar');
+        var overlay = document.getElementById('mobile-overlay');
+        function open() { sidebar.classList.remove('hidden'); }
+        function close() { sidebar.classList.add('hidden'); }
+        if (menuBtn) menuBtn.addEventListener('click', open);
+        if (closeBtn) closeBtn.addEventListener('click', close);
+        if (overlay) overlay.addEventListener('click', close);
+    })();
+
     // ── Shared utilities ──
     function formatDuration(seconds) {
         if (seconds == null || isNaN(seconds)) return '-';
@@ -144,11 +311,26 @@
         if (n == null || isNaN(n)) return '-';
         return Number(n).toLocaleString();
     }
+    function timeAgo(dateStr) {
+        var d = new Date(dateStr);
+        if (isNaN(d)) return '';
+        var diff = (Date.now() - d.getTime()) / 1000;
+        if (diff < 60) return Math.round(diff) + 's ago';
+        if (diff < 3600) return Math.round(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
+        if (diff < 2592000) return Math.round(diff / 86400) + 'd ago';
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
     // Format <time> elements
     document.querySelectorAll('time[datetime]').forEach(function(el) {
         var d = new Date(el.getAttribute('datetime'));
         if (!isNaN(d)) {
-            el.textContent = d.toLocaleString(undefined, JSON.parse(el.dataset.fmt || '{}'));
+            if (el.dataset.ago !== undefined) {
+                el.textContent = timeAgo(el.getAttribute('datetime'));
+                el.title = d.toLocaleString();
+            } else {
+                el.textContent = d.toLocaleString(undefined, JSON.parse(el.dataset.fmt || '{}'));
+            }
         }
     });
     // Format duration cells
@@ -160,6 +342,12 @@
     document.querySelectorAll('.num-fmt').forEach(function(el) {
         var val = parseFloat(el.textContent.replace(/[^0-9.\-]/g, ''));
         if (!isNaN(val) && val >= 1000) el.textContent = formatNumber(val);
+    });
+    // Dropdown toggle helper
+    document.addEventListener('click', function(e) {
+        document.querySelectorAll('.ox-dropdown.open').forEach(function(dd) {
+            if (!dd.contains(e.target)) dd.classList.remove('open');
+        });
     });
     </script>
     {% block extra_js %}{% endblock %}

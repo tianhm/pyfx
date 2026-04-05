@@ -3,71 +3,68 @@
 
 {% block content %}
 <!-- Breadcrumbs -->
-<div class="breadcrumbs text-sm mb-4">
-    <ul>
-        <li><a href="{% url 'dashboard:dataset_list' %}">Data</a></li>
-        <li>Download</li>
-    </ul>
+<div class="ox-breadcrumbs mb-4">
+    <a href="{% url 'dashboard:dataset_list' %}">Data</a>
+    <span class="separator">/</span>
+    <span class="text-txt-secondary">Download</span>
 </div>
 
-<h1 class="text-2xl font-bold mb-6">Download Data</h1>
+<h1 class="text-lg font-semibold text-txt-raise mb-5">Download Data</h1>
 
 <form id="download-form" method="post" action="{% url 'dashboard:dataset_start' %}">
     {% csrf_token %}
     <div class="max-w-lg">
-        <div class="card bg-base-100 shadow">
-            <div class="card-body p-5 space-y-4">
-                <h2 class="text-sm font-semibold uppercase tracking-wider opacity-50">Dukascopy Data</h2>
+        <div class="ox-card p-5 space-y-4">
+            <div class="section-label">Dukascopy Data</div>
 
-                <div class="form-control">
-                    <label class="label py-1"><span class="label-text text-xs font-medium">Instrument</span></label>
-                    <select name="instrument" class="select select-bordered select-sm w-full" required>
-                        {% for inst in instruments %}
-                        <option value="{{ inst }}" {% if inst == "EUR/USD" %}selected{% endif %}>{{ inst }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
+            <div>
+                <label class="block text-xs font-mono text-txt-secondary mb-1">Instrument</label>
+                <select name="instrument" class="ox-select w-full text-xs font-mono" required>
+                    {% for inst in instruments %}
+                    <option value="{{ inst }}" {% if inst == "EUR/USD" %}selected{% endif %}>{{ inst }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-                <!-- Date preset buttons -->
-                <div class="flex gap-2 flex-wrap">
-                    <span class="text-xs opacity-50 self-center mr-1">Quick:</span>
-                    <button type="button" class="btn btn-ghost btn-xs" onclick="setDateRange(30)">30d</button>
-                    <button type="button" class="btn btn-ghost btn-xs" onclick="setDateRange(90)">90d</button>
-                    <button type="button" class="btn btn-ghost btn-xs" onclick="setDateRange(365)">1yr</button>
-                    <button type="button" class="btn btn-ghost btn-xs" onclick="setDateRange(1825)">5yr</button>
-                </div>
+            <!-- Date preset buttons -->
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[10px] font-mono text-txt-disabled uppercase">Quick:</span>
+                <button type="button" class="btn-ghost text-xs font-mono py-1 px-2" onclick="setDateRange(30)">30d</button>
+                <button type="button" class="btn-ghost text-xs font-mono py-1 px-2" onclick="setDateRange(90)">90d</button>
+                <button type="button" class="btn-ghost text-xs font-mono py-1 px-2" onclick="setDateRange(365)">1yr</button>
+                <button type="button" class="btn-ghost text-xs font-mono py-1 px-2" onclick="setDateRange(1825)">5yr</button>
+            </div>
 
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="form-control">
-                        <label class="label py-1"><span class="label-text text-xs font-medium">Start Date</span></label>
-                        <input type="date" id="start-date" name="start" class="input input-bordered input-sm w-full" required />
-                    </div>
-                    <div class="form-control">
-                        <label class="label py-1"><span class="label-text text-xs font-medium">End Date</span></label>
-                        <input type="date" id="end-date" name="end" class="input input-bordered input-sm w-full" required />
-                    </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">Start Date</label>
+                    <input type="date" id="start-date" name="start" class="ox-input w-full text-xs font-mono" required />
                 </div>
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">End Date</label>
+                    <input type="date" id="end-date" name="end" class="ox-input w-full text-xs font-mono" required />
+                </div>
+            </div>
 
-                <div class="form-control">
-                    <label class="label py-1"><span class="label-text text-xs font-medium">Timeframe</span></label>
-                    <select name="timeframe" class="select select-bordered select-sm w-full">
-                        <option value="M1" selected>M1 (1 Minute)</option>
-                        <option value="M5">M5 (5 Minutes)</option>
-                        <option value="M15">M15 (15 Minutes)</option>
-                        <option value="M30">M30 (30 Minutes)</option>
-                        <option value="H1">H1 (1 Hour)</option>
-                    </select>
-                </div>
+            <div>
+                <label class="block text-xs font-mono text-txt-secondary mb-1">Timeframe</label>
+                <select name="timeframe" class="ox-select w-full text-xs font-mono">
+                    <option value="M1" selected>M1 (1 Minute)</option>
+                    <option value="M5">M5 (5 Minutes)</option>
+                    <option value="M15">M15 (15 Minutes)</option>
+                    <option value="M30">M30 (30 Minutes)</option>
+                    <option value="H1">H1 (1 Hour)</option>
+                </select>
+            </div>
 
-                <div class="alert alert-info text-sm py-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    <span>Requires <code class="font-mono">npx</code> (Node.js) installed. Downloads from Dukascopy may take several minutes for large date ranges.</span>
-                </div>
+            <div class="ox-alert ox-alert-info text-xs">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="w-4 h-4 shrink-0 stroke-current"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>Requires <code class="font-mono text-accent">npx</code> (Node.js) installed. Downloads from Dukascopy may take several minutes for large date ranges.</span>
             </div>
         </div>
 
-        <button type="submit" id="submit-btn" class="btn btn-primary w-full mt-4">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
+        <button type="submit" id="submit-btn" class="btn-accent w-full flex items-center justify-center gap-2 py-2.5 mt-4">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke-linecap="round" stroke-linejoin="round"/>
                 <polyline points="7 10 12 15 17 10" stroke-linecap="round" stroke-linejoin="round"/>
                 <line x1="12" y1="15" x2="12" y2="3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -81,17 +78,17 @@
 {% block extra_js %}
 <script>
 function setDateRange(days) {
-    const end = new Date();
-    const start = new Date();
+    var end = new Date();
+    var start = new Date();
     start.setDate(start.getDate() - days);
     document.getElementById('end-date').value = end.toISOString().slice(0, 10);
     document.getElementById('start-date').value = start.toISOString().slice(0, 10);
 }
 
 document.getElementById('download-form').addEventListener('submit', function() {
-    const btn = document.getElementById('submit-btn');
+    var btn = document.getElementById('submit-btn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Starting\u2026';
+    btn.innerHTML = '<span class="ox-spinner"></span> Starting\u2026';
 });
 </script>
 {% endblock %}

@@ -3,90 +3,87 @@
 
 {% block content %}
 <!-- Breadcrumbs -->
-<div class="breadcrumbs text-sm mb-4">
-    <ul>
-        <li><a href="{% url 'dashboard:backtest_list' %}">Backtests</a></li>
-        <li>New Backtest</li>
-    </ul>
+<div class="ox-breadcrumbs mb-4">
+    <a href="{% url 'dashboard:backtest_list' %}">Backtests</a>
+    <span class="separator">/</span>
+    <span class="text-txt-secondary">New Backtest</span>
 </div>
 
-<h1 class="text-2xl font-bold mb-6">New Backtest</h1>
+<h1 class="text-lg font-semibold text-txt-raise mb-5">New Backtest</h1>
 
 <form id="backtest-form" method="post" action="{% url 'dashboard:backtest_start' %}">
     {% csrf_token %}
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <!-- Left Column: Core Config -->
         <div class="space-y-4">
-            <div class="card bg-base-100 shadow">
-                <div class="card-body p-5 space-y-4">
-                    <h2 class="text-sm font-semibold uppercase tracking-wider opacity-50">Configuration</h2>
+            <div class="ox-card p-5 space-y-4">
+                <div class="section-label">Configuration</div>
 
-                    <div class="form-control">
-                        <label class="label py-1"><span class="label-text text-xs font-medium">Strategy</span></label>
-                        <select id="strategy-select" name="strategy" class="select select-bordered select-sm w-full" required>
-                            <option value="" disabled selected>Loading strategies&hellip;</option>
-                        </select>
-                    </div>
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">Strategy</label>
+                    <select id="strategy-select" name="strategy" class="ox-select w-full text-xs font-mono" required>
+                        <option value="" disabled selected>Loading strategies...</option>
+                    </select>
+                </div>
 
-                    <div class="form-control">
-                        <label class="label py-1"><span class="label-text text-xs font-medium">Instrument</span></label>
-                        <input type="text" name="instrument" value="EUR/USD" class="input input-bordered input-sm w-full" required />
-                    </div>
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">Instrument</label>
+                    <input type="text" name="instrument" value="EUR/USD" class="ox-input w-full text-xs font-mono" required />
+                </div>
 
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="form-control">
-                            <label class="label py-1"><span class="label-text text-xs font-medium">Start Date</span></label>
-                            <input type="date" id="start-date" name="start" class="input input-bordered input-sm w-full" required />
-                        </div>
-                        <div class="form-control">
-                            <label class="label py-1"><span class="label-text text-xs font-medium">End Date</span></label>
-                            <input type="date" id="end-date" name="end" class="input input-bordered input-sm w-full" required />
-                        </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-mono text-txt-secondary mb-1">Start Date</label>
+                        <input type="date" id="start-date" name="start" class="ox-input w-full text-xs font-mono" required />
                     </div>
+                    <div>
+                        <label class="block text-xs font-mono text-txt-secondary mb-1">End Date</label>
+                        <input type="date" id="end-date" name="end" class="ox-input w-full text-xs font-mono" required />
+                    </div>
+                </div>
 
-                    <div class="form-control">
-                        <label class="label py-1"><span class="label-text text-xs font-medium">Data File</span></label>
-                        <select id="dataset-select" class="select select-bordered select-sm w-full" onchange="onDatasetSelect(this)">
-                            <option value="" disabled selected>Loading datasets&hellip;</option>
-                        </select>
-                        <input type="hidden" name="data_file" id="data-file-input" required />
-                        <input type="text" id="custom-path-input" placeholder="Enter custom file path" class="input input-bordered input-sm w-full font-mono text-xs mt-2 hidden" />
-                        <label class="label py-0"><span class="label-text-alt opacity-40">Select a dataset or enter a custom path</span></label>
-                    </div>
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">Data File</label>
+                    <select id="dataset-select" class="ox-select w-full text-xs font-mono" onchange="onDatasetSelect(this)">
+                        <option value="" disabled selected>Loading datasets...</option>
+                    </select>
+                    <input type="hidden" name="data_file" id="data-file-input" required />
+                    <input type="text" id="custom-path-input" placeholder="Enter custom file path" class="ox-input w-full text-xs font-mono mt-2 hidden" />
+                    <p class="text-[10px] font-mono text-txt-disabled mt-1">Select a dataset or enter a custom path</p>
                 </div>
             </div>
 
-            <!-- Advanced Settings (Collapsible) -->
-            <div class="collapse collapse-arrow bg-base-100 shadow rounded-box">
-                <input type="checkbox" />
-                <div class="collapse-title text-sm font-semibold uppercase tracking-wider opacity-50 py-3 min-h-0">
-                    Advanced
-                </div>
-                <div class="collapse-content px-5 pb-4">
+            <!-- Advanced Settings -->
+            <div class="ox-card">
+                <button type="button" id="advanced-toggle" class="w-full px-5 py-3 text-left flex items-center justify-between" onclick="document.getElementById('advanced-body').classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180');">
+                    <span class="section-label">Advanced</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 text-txt-tertiary transition-transform" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <div id="advanced-body" class="hidden px-5 pb-4">
                     <div class="grid grid-cols-2 gap-3">
-                        <div class="form-control">
-                            <label class="label py-1"><span class="label-text text-xs">Balance</span></label>
-                            <input type="number" name="balance" value="100000" class="input input-bordered input-sm w-full" />
+                        <div>
+                            <label class="block text-xs font-mono text-txt-secondary mb-1">Balance</label>
+                            <input type="number" name="balance" value="100000" class="ox-input w-full text-xs font-mono" />
                         </div>
-                        <div class="form-control">
-                            <label class="label py-1"><span class="label-text text-xs">Leverage</span></label>
-                            <input type="number" name="leverage" value="50" class="input input-bordered input-sm w-full" />
+                        <div>
+                            <label class="block text-xs font-mono text-txt-secondary mb-1">Leverage</label>
+                            <input type="number" name="leverage" value="50" class="ox-input w-full text-xs font-mono" />
                         </div>
-                        <div class="form-control">
-                            <label class="label py-1"><span class="label-text text-xs">Trade Size</span></label>
-                            <input type="number" name="trade_size" value="100000" class="input input-bordered input-sm w-full" />
+                        <div>
+                            <label class="block text-xs font-mono text-txt-secondary mb-1">Trade Size</label>
+                            <input type="number" name="trade_size" value="100000" class="ox-input w-full text-xs font-mono" />
                         </div>
-                        <div class="form-control">
-                            <label class="label py-1"><span class="label-text text-xs">Bar Type</span></label>
-                            <input type="text" name="bar_type" value="1-MINUTE-LAST-EXTERNAL" class="input input-bordered input-sm w-full font-mono text-xs" />
+                        <div>
+                            <label class="block text-xs font-mono text-txt-secondary mb-1">Bar Type</label>
+                            <input type="text" name="bar_type" value="1-MINUTE-LAST-EXTERNAL" class="ox-input w-full text-[10px] font-mono" />
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Submit -->
-            <button type="submit" id="submit-btn" class="btn btn-primary w-full">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
+            <button type="submit" id="submit-btn" class="btn-accent w-full flex items-center justify-center gap-2 py-2.5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
                     <polygon points="5 3 19 12 5 21 5 3"/>
                 </svg>
                 Start Backtest
@@ -104,47 +101,47 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const select = document.getElementById('strategy-select');
-    const paramsArea = document.getElementById('strategy-params-area');
-    const paramsCards = document.getElementById('strategy-params-cards');
-    let strategiesData = {};
+    var select = document.getElementById('strategy-select');
+    var paramsArea = document.getElementById('strategy-params-area');
+    var paramsCards = document.getElementById('strategy-params-cards');
+    var strategiesData = {};
 
-    // ── Set default dates (1 year ago → today) ──
-    const today = new Date();
-    const yearAgo = new Date(today);
+    // Default dates (1 year ago -> today)
+    var today = new Date();
+    var yearAgo = new Date(today);
     yearAgo.setFullYear(yearAgo.getFullYear() - 1);
     document.getElementById('end-date').value = today.toISOString().slice(0, 10);
     document.getElementById('start-date').value = yearAgo.toISOString().slice(0, 10);
 
-    const CATEGORY_LABELS = {
+    var CATEGORY_LABELS = {
         indicators: 'Indicators & Entry',
         exits: 'Exit Rules',
         timing: 'Session & Timing',
         advanced: 'Advanced',
     };
-    const CATEGORY_ORDER = ['indicators', 'exits', 'timing', 'advanced'];
+    var CATEGORY_ORDER = ['indicators', 'exits', 'timing', 'advanced'];
 
-    const ENUM_OPTIONS = {
+    var ENUM_OPTIONS = {
         entry_mode: ['full', 'relaxed', '2of3', 'no_h2', 'sma_macd', 'rsi_level', 'trend_follow'],
         exit_mode: ['fixed', 'trailing', 'atr'],
     };
 
-    // ── Load datasets for data file dropdown ──
-    const datasetSelect = document.getElementById('dataset-select');
-    const dataFileInput = document.getElementById('data-file-input');
-    const customPathInput = document.getElementById('custom-path-input');
+    // Load datasets
+    var datasetSelect = document.getElementById('dataset-select');
+    var dataFileInput = document.getElementById('data-file-input');
+    var customPathInput = document.getElementById('custom-path-input');
 
     fetch('{% url "dashboard:api_datasets" %}')
-        .then(r => r.json())
-        .then(data => {
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
             datasetSelect.innerHTML = '<option value="" disabled selected>Select a dataset</option>';
-            data.forEach(ds => {
-                const opt = document.createElement('option');
+            data.forEach(function(ds) {
+                var opt = document.createElement('option');
                 opt.value = ds.file_path;
                 opt.textContent = ds.instrument + ' ' + ds.timeframe + ' (' + ds.start_date + ' to ' + ds.end_date + ') - ' + ds.display_size;
                 datasetSelect.appendChild(opt);
             });
-            const customOpt = document.createElement('option');
+            var customOpt = document.createElement('option');
             customOpt.value = '__custom__';
             customOpt.textContent = 'Custom path\u2026';
             datasetSelect.appendChild(customOpt);
@@ -172,23 +169,23 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     fetch('{% url "dashboard:api_strategies" %}')
-        .then(r => r.json())
-        .then(data => {
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
             select.innerHTML = '<option value="" disabled selected>Select a strategy</option>';
-            data.forEach(s => {
+            data.forEach(function(s) {
                 strategiesData[s.name] = s.params;
-                const opt = document.createElement('option');
+                var opt = document.createElement('option');
                 opt.value = s.name;
                 opt.textContent = s.name;
                 select.appendChild(opt);
             });
         })
-        .catch(() => {
+        .catch(function() {
             select.innerHTML = '<option value="" disabled selected>Failed to load strategies</option>';
         });
 
     select.addEventListener('change', function() {
-        const params = strategiesData[this.value] || [];
+        var params = strategiesData[this.value] || [];
         paramsCards.innerHTML = '';
 
         if (params.length === 0) {
@@ -198,52 +195,47 @@ document.addEventListener('DOMContentLoaded', function() {
         paramsArea.classList.remove('hidden');
 
         // Group by category
-        const groups = {};
-        params.forEach(p => {
-            const cat = p.category || 'advanced';
+        var groups = {};
+        params.forEach(function(p) {
+            var cat = p.category || 'advanced';
             if (!groups[cat]) groups[cat] = [];
             groups[cat].push(p);
         });
 
-        CATEGORY_ORDER.forEach(cat => {
-            const items = groups[cat];
+        CATEGORY_ORDER.forEach(function(cat) {
+            var items = groups[cat];
             if (!items || items.length === 0) return;
 
-            const card = document.createElement('div');
-            card.className = 'card bg-base-100 shadow';
-            const body = document.createElement('div');
-            body.className = 'card-body p-5';
+            var card = document.createElement('div');
+            card.className = 'ox-card p-5';
 
-            const heading = document.createElement('h2');
-            heading.className = 'text-sm font-semibold uppercase tracking-wider opacity-50 mb-3';
+            var heading = document.createElement('div');
+            heading.className = 'section-label mb-3';
             heading.textContent = CATEGORY_LABELS[cat] || cat;
-            body.appendChild(heading);
+            card.appendChild(heading);
 
-            const grid = document.createElement('div');
-            grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2';
+            var grid = document.createElement('div');
+            grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3';
 
-            items.forEach(p => {
-                const wrapper = document.createElement('div');
-                wrapper.className = 'form-control';
+            items.forEach(function(p) {
+                var wrapper = document.createElement('div');
 
                 if (p.type === 'bool') {
-                    // Toggle
-                    wrapper.className = 'form-control flex-row items-center justify-between py-2';
-                    const label = document.createElement('span');
-                    label.className = 'label-text text-xs';
+                    wrapper.className = 'flex items-center justify-between py-1';
+                    var label = document.createElement('span');
+                    label.className = 'text-xs font-mono text-txt-secondary';
                     label.textContent = p.name;
                     wrapper.appendChild(label);
 
-                    // Hidden input for unchecked state
-                    const hidden = document.createElement('input');
+                    var hidden = document.createElement('input');
                     hidden.type = 'hidden';
                     hidden.name = 'param_' + p.name;
                     hidden.value = 'false';
                     wrapper.appendChild(hidden);
 
-                    const toggle = document.createElement('input');
+                    var toggle = document.createElement('input');
                     toggle.type = 'checkbox';
-                    toggle.className = 'toggle toggle-sm toggle-primary';
+                    toggle.className = 'ox-toggle';
                     toggle.dataset.paramName = p.name;
                     if (p.default === true) toggle.checked = true;
                     toggle.addEventListener('change', function() {
@@ -252,17 +244,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (p.default === true) hidden.value = 'true';
                     wrapper.appendChild(toggle);
                 } else if (ENUM_OPTIONS[p.name]) {
-                    // Select dropdown
-                    const label = document.createElement('label');
-                    label.className = 'label py-1';
-                    label.innerHTML = '<span class="label-text text-xs">' + p.name + '</span>';
-                    wrapper.appendChild(label);
+                    var lbl = document.createElement('label');
+                    lbl.className = 'block text-xs font-mono text-txt-secondary mb-1';
+                    lbl.textContent = p.name;
+                    wrapper.appendChild(lbl);
 
-                    const sel = document.createElement('select');
+                    var sel = document.createElement('select');
                     sel.name = 'param_' + p.name;
-                    sel.className = 'select select-bordered select-sm w-full';
-                    ENUM_OPTIONS[p.name].forEach(opt => {
-                        const o = document.createElement('option');
+                    sel.className = 'ox-select w-full text-xs font-mono';
+                    ENUM_OPTIONS[p.name].forEach(function(opt) {
+                        var o = document.createElement('option');
                         o.value = opt;
                         o.textContent = opt;
                         if (opt === p.default) o.selected = true;
@@ -270,35 +261,33 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                     wrapper.appendChild(sel);
                 } else {
-                    // Number or text input
-                    const label = document.createElement('label');
-                    label.className = 'label py-1';
-                    label.innerHTML = '<span class="label-text text-xs">' + p.name + '</span>';
-                    wrapper.appendChild(label);
+                    var lbl2 = document.createElement('label');
+                    lbl2.className = 'block text-xs font-mono text-txt-secondary mb-1';
+                    lbl2.textContent = p.name;
+                    wrapper.appendChild(lbl2);
 
-                    const input = document.createElement('input');
+                    var input = document.createElement('input');
                     input.type = (p.type === 'int' || p.type === 'float') ? 'number' : 'text';
                     input.name = 'param_' + p.name;
                     input.value = p.default !== null ? p.default : '';
                     if (p.type === 'float') input.step = 'any';
-                    input.className = 'input input-bordered input-sm w-full';
+                    input.className = 'ox-input w-full text-xs font-mono';
                     wrapper.appendChild(input);
                 }
 
                 grid.appendChild(wrapper);
             });
 
-            body.appendChild(grid);
-            card.appendChild(body);
+            card.appendChild(grid);
             paramsCards.appendChild(card);
         });
     });
 
     // Form submit loading state
     document.getElementById('backtest-form').addEventListener('submit', function() {
-        const btn = document.getElementById('submit-btn');
+        var btn = document.getElementById('submit-btn');
         btn.disabled = true;
-        btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Starting&hellip;';
+        btn.innerHTML = '<span class="ox-spinner"></span> Starting\u2026';
     });
 });
 </script>

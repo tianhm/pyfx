@@ -179,8 +179,8 @@ class BacktestDetailViewTests(TestCase):
         assert len(resp.context["trades"]) == 2
 
     def test_detail_cumulative_pnl(self):
-        resp = self.client.get(f"/run/{self.run.pk}/")
-        pnl = json.loads(resp.context["cumulative_pnl_json"])
+        resp = self.client.get(f"/api/run/{self.run.pk}/cumulative-pnl/")
+        pnl = resp.json()
         assert len(pnl) == 2
         assert pnl[0]["value"] == 100.0
         assert pnl[1]["value"] == 50.0
@@ -188,8 +188,8 @@ class BacktestDetailViewTests(TestCase):
         assert isinstance(pnl[0]["time"], int)
 
     def test_detail_trade_markers_json(self):
-        resp = self.client.get(f"/run/{self.run.pk}/")
-        markers = json.loads(resp.context["trade_markers_json"])
+        resp = self.client.get(f"/api/run/{self.run.pk}/trade-markers/")
+        markers = resp.json()
         # 2 trades × 2 markers (entry + exit) = 4
         assert len(markers) == 4
         assert markers[0]["type"] == "entry"

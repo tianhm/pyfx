@@ -89,16 +89,7 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
     run = get_object_or_404(BacktestRun, pk=pk)
     trades = run.trade_set.all()
 
-    cumulative_pnl: list[dict[str, object]] = []
-    running = 0.0
-    for t in trades:
-        running += t.realized_pnl
-        cumulative_pnl.append({
-            "time": int(t.closed_at.timestamp()),
-            "value": round(running, 2),
-        })
-
-    # Compute quant metrics
+    # Compute quant metrics (lightweight — stays in template context)
     expectancy = 0.0
     win_loss_ratio: float | None = None
     num_wins = 0
@@ -113,35 +104,12 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
         num_wins = round(run.num_trades * wr)
         num_losses = run.num_trades - num_wins
 
-    # Build trade markers JSON for the price chart
-    trade_markers: list[dict[str, object]] = []
-    for i, t in enumerate(trades):
-        # Entry marker
-        trade_markers.append({
-            "time": int(t.opened_at.timestamp()),
-            "side": t.side,
-            "type": "entry",
-            "price": float(t.open_price),
-            "pnl": round(float(t.realized_pnl), 2),
-            "tradeIdx": i,
-        })
-        # Exit marker
-        trade_markers.append({
-            "time": int(t.closed_at.timestamp()),
-            "side": t.side,
-            "type": "exit",
-            "price": float(t.close_price),
-            "pnl": round(float(t.realized_pnl), 2),
-            "tradeIdx": i,
-        })
-
     # Available timeframes for chart selector
     available_timeframes = ["1-MINUTE-LAST-EXTERNAL"]
     if run.extra_bar_types:
         for bt in run.extra_bar_types:
             if bt not in available_timeframes:
                 available_timeframes.append(bt)
-    # Add common resampled timeframes
     for tf in [
         "5-MINUTE-LAST-EXTERNAL",
         "15-MINUTE-LAST-EXTERNAL",
@@ -167,8 +135,6 @@ def backtest_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "active_nav": "backtests",
         "run": run,
         "trades": trades,
-        "cumulative_pnl_json": json.dumps(cumulative_pnl),
-        "trade_markers_json": json.dumps(trade_markers),
         "available_timeframes_json": json.dumps(available_timeframes),
         "chart_indicators_json": json.dumps(chart_indicators),
         "expectancy": expectancy,
@@ -487,6 +453,43 @@ def api_trades(request: HttpRequest, pk: int) -> JsonResponse:
         }
         for t in trades
     ]
+    return JsonResponse(data, safe=False)
+
+
+def api_trade_markers(request: HttpRequest, pk: int) -> JsonResponse:
+    """Trade entry/exit markers for the price chart (lazy-loaded)."""
+    run = get_object_or_404(BacktestRun, pk=pk)
+    trades = Trade.objects.filter(run=run)
+    markers: list[dict[str, object]] = []
+    for i, t in enumerate(trades):
+        markers.append({
+            "time": int(t.opened_at.timestamp()),
+            "side": t.side,
+            "type": "entry",
+            "price": float(t.open_price),
+            "pnl": round(float(t.realized_pnl), 2),
+            "tradeIdx": i,
+        })
+        markers.append({
+            "time": int(t.closed_at.timestamp()),
+            "side": t.side,
+            "type": "exit",
+            "price": float(t.close_price),
+            "pnl": round(float(t.realized_pnl), 2),
+            "tradeIdx": i,
+        })
+    return JsonResponse(markers, safe=False)
+
+
+def api_cumulative_pnl(request: HttpRequest, pk: int) -> JsonResponse:
+    """Cumulative P&L series for the histogram chart (lazy-loaded)."""
+    run = get_object_or_404(BacktestRun, pk=pk)
+    trades = Trade.objects.filter(run=run).order_by("closed_at")
+    running = 0.0
+    data: list[dict[str, object]] = []
+    for t in trades:
+        running += t.realized_pnl
+        data.append({"time": int(t.closed_at.timestamp()), "value": round(running, 2)})
     return JsonResponse(data, safe=False)
 
 

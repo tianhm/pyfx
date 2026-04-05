@@ -3,132 +3,104 @@
 
 {% block extra_head %}
 <style>
-    @keyframes shimmer {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(100%); }
-    }
-    .progress-bar-fill {
-        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .shimmer-active::after {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
-        animation: shimmer 1.8s infinite;
-    }
-    .running-card {
-        animation: fadeIn 0.3s ease-out;
-    }
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(-8px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes pulse-dot {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.4; }
-    }
-    .pulse-dot {
-        animation: pulse-dot 1.5s ease-in-out infinite;
-    }
     th[data-sort] { cursor: pointer; user-select: none; }
-    th[data-sort]:hover { opacity: 0.8; }
-    th[data-sort]::after { content: ' \2195'; opacity: 0.3; font-size: 0.7em; }
-    th[data-sort].asc::after { content: ' \2191'; opacity: 1; }
-    th[data-sort].desc::after { content: ' \2193'; opacity: 1; }
+    th[data-sort]:hover { color: #7b8694; }
+    th[data-sort]::after { content: ' \2195'; opacity: 0.3; font-size: 0.8em; }
+    th[data-sort].asc::after { content: ' \2191'; opacity: 1; color: #48d597; }
+    th[data-sort].desc::after { content: ' \2193'; opacity: 1; color: #48d597; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="flex justify-between items-center mb-6">
     <div>
-        <h1 class="text-2xl font-bold">Backtests</h1>
-        <p class="text-sm text-base-content/50 mt-1">{{ runs|length }} run{{ runs|length|pluralize }}</p>
+        <h1 class="text-lg font-semibold text-txt-raise">Backtests</h1>
+        <p class="text-xs font-mono text-txt-tertiary mt-0.5">{{ runs|length }} run{{ runs|length|pluralize }}</p>
     </div>
-    <a href="{% url 'dashboard:backtest_new' %}" class="btn btn-primary btn-sm">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4" stroke-width="2">
+    <a href="{% url 'dashboard:backtest_new' %}" class="btn-accent inline-flex items-center gap-2 text-xs py-1.5 px-3">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
             <path d="M12 5v14m-7-7h14" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
         New Backtest
     </a>
 </div>
 
+<!-- Filter bar -->
+<div class="flex items-center gap-3 mb-4">
+    <div class="relative flex-1 max-w-xs">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-txt-tertiary" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+        </svg>
+        <input id="search-filter" type="text" placeholder="Filter by strategy..." class="ox-input w-full pl-9 text-xs font-mono" />
+    </div>
+</div>
+
 <!-- Running Backtests (populated by JS) -->
-<div id="running-backtests" class="space-y-3 mb-6"></div>
+<div id="running-backtests" class="space-y-2 mb-4"></div>
 
 {% if runs %}
-<div class="card bg-base-100 shadow">
-    <div class="overflow-x-auto max-h-[75vh] overflow-y-auto">
-        <table class="table table-pin-rows w-full">
-            <thead>
-                <tr class="text-xs uppercase tracking-wider opacity-50">
-                    <th>Status</th>
-                    <th data-sort="str">Date</th>
-                    <th data-sort="str">Strategy</th>
-                    <th data-sort="str">Instrument</th>
-                    <th data-sort="num" class="text-right">P&L</th>
-                    <th data-sort="num" class="text-right">Return</th>
-                    <th data-sort="num" class="text-right">Trades</th>
-                    <th data-sort="num" class="text-right">Win Rate</th>
-                    <th data-sort="num" class="text-right">Max DD</th>
-                    <th data-sort="num" class="text-right">Duration</th>
-                    <th></th>
+<div class="ox-card">
+    <div class="overflow-x-auto" style="max-height: 75vh; overflow-y: auto;">
+        <table class="w-full">
+            <thead class="sticky top-0 bg-ox-raise z-10">
+                <tr class="border-b border-ox-border">
+                    <th class="table-header text-left px-4 py-2.5">Status</th>
+                    <th class="table-header text-left px-4 py-2.5" data-sort="str">Date</th>
+                    <th class="table-header text-left px-4 py-2.5" data-sort="str">Strategy</th>
+                    <th class="table-header text-left px-4 py-2.5" data-sort="str">Instrument</th>
+                    <th class="table-header text-right px-4 py-2.5" data-sort="num">P&L</th>
+                    <th class="table-header text-right px-4 py-2.5" data-sort="num">Return</th>
+                    <th class="table-header text-right px-4 py-2.5" data-sort="num">Trades</th>
+                    <th class="table-header text-right px-4 py-2.5" data-sort="num">Win Rate</th>
+                    <th class="table-header text-right px-4 py-2.5" data-sort="num">Max DD</th>
+                    <th class="table-header text-right px-4 py-2.5" data-sort="num">Duration</th>
+                    <th class="table-header px-4 py-2.5 w-16"></th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="backtest-tbody">
                 {% for run in runs %}
-                <tr class="clickable-row hover" onclick="window.location='{% url 'dashboard:backtest_detail' run.pk %}'">
-                    <td>
+                <tr class="clickable-row border-b border-ox-border/50" data-strategy="{{ run.strategy }}" onclick="window.location='{% url 'dashboard:backtest_detail' run.pk %}'">
+                    <td class="px-4 py-2">
                         {% if run.status == 'running' %}
-                            <span class="badge badge-info badge-sm gap-1">
-                                <span class="loading loading-spinner loading-xs"></span> Running
+                            <span class="inline-flex items-center gap-1.5 text-xs font-mono text-info">
+                                <span class="status-dot status-dot-info animate-pulse-dot"></span>Running
                             </span>
                         {% elif run.status == 'failed' %}
-                            <div class="tooltip" data-tip="{{ run.error_message|truncatewords:10 }}">
-                                <span class="badge badge-error badge-sm gap-1">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2">
-                                        <circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6m0-6l6 6"/>
-                                    </svg>
-                                    Failed
-                                </span>
-                            </div>
+                            <span class="inline-flex items-center gap-1.5 text-xs font-mono text-error" data-tooltip="{{ run.error_message|truncatewords:10 }}">
+                                <span class="status-dot status-dot-error"></span>Failed
+                            </span>
                         {% else %}
-                            <span class="badge badge-success badge-sm gap-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2">
-                                    <path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                                Done
+                            <span class="inline-flex items-center gap-1.5 text-xs font-mono text-success">
+                                <span class="status-dot status-dot-success"></span>Done
                             </span>
                         {% endif %}
                     </td>
-                    <td class="whitespace-nowrap text-sm">
-                        <time datetime="{{ run.created_at|date:'c' }}" data-fmt='{"month":"short","day":"numeric","hour":"2-digit","minute":"2-digit","hour12":false}'>{{ run.created_at|date:"M d, H:i" }}</time>
+                    <td class="px-4 py-2 whitespace-nowrap text-xs font-mono text-txt-secondary">
+                        <time datetime="{{ run.created_at|date:'c' }}" data-ago>{{ run.created_at|date:"M d, H:i" }}</time>
                     </td>
-                    <td>
-                        <span class="badge badge-primary badge-sm">{{ run.strategy }}</span>
-                    </td>
-                    <td class="text-sm">{{ run.instrument }}</td>
-                    <td data-val="{{ run.total_pnl }}" class="text-right num text-sm {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
+                    <td class="px-4 py-2"><span class="ox-badge ox-badge-accent">{{ run.strategy }}</span></td>
+                    <td class="px-4 py-2 text-xs font-mono text-txt-secondary">{{ run.instrument }}</td>
+                    <td data-val="{{ run.total_pnl }}" class="px-4 py-2 text-right num text-xs {% if run.total_pnl >= 0 %}text-success{% else %}text-error{% endif %}">
                         ${{ run.total_pnl|floatformat:2 }}
                     </td>
-                    <td data-val="{{ run.total_return_pct }}" class="text-right num text-sm {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
+                    <td data-val="{{ run.total_return_pct }}" class="px-4 py-2 text-right num text-xs {% if run.total_return_pct >= 0 %}text-success{% else %}text-error{% endif %}">
                         {{ run.total_return_pct|floatformat:2 }}%
                     </td>
-                    <td data-val="{{ run.num_trades }}" class="text-right num text-sm">{{ run.num_trades }}</td>
-                    <td data-val="{{ run.win_rate }}" class="text-right num text-sm">{{ run.win_rate_pct|floatformat:1 }}%</td>
-                    <td data-val="{{ run.max_drawdown_pct }}" class="text-right num text-sm text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
-                    <td data-val="{{ run.duration_seconds }}" class="text-right num text-sm opacity-70 duration-cell">{{ run.duration_seconds|floatformat:1 }}s</td>
-                    <td class="text-right" onclick="event.stopPropagation()">
+                    <td data-val="{{ run.num_trades }}" class="px-4 py-2 text-right num text-xs text-txt-secondary">{{ run.num_trades }}</td>
+                    <td data-val="{{ run.win_rate }}" class="px-4 py-2 text-right num text-xs {% if run.win_rate >= 0.5 %}text-success{% else %}text-txt-secondary{% endif %}">{{ run.win_rate_pct|floatformat:1 }}%</td>
+                    <td data-val="{{ run.max_drawdown_pct }}" class="px-4 py-2 text-right num text-xs text-error">{{ run.max_drawdown_pct|floatformat:2 }}%</td>
+                    <td data-val="{{ run.duration_seconds }}" class="px-4 py-2 text-right num text-xs text-txt-tertiary duration-cell">{{ run.duration_seconds|floatformat:1 }}s</td>
+                    <td class="px-4 py-2 text-right" onclick="event.stopPropagation()">
                         <div class="flex gap-1 justify-end">
                             <form method="post" action="{% url 'dashboard:backtest_rerun' run.pk %}" class="inline">
                                 {% csrf_token %}
-                                <button type="submit" class="btn btn-ghost btn-xs tooltip" data-tip="Re-run">
+                                <button type="submit" class="btn-ghost p-1" data-tooltip="Re-run">
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
                                         <path d="M1 4v6h6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" stroke-linecap="round" stroke-linejoin="round"/>
                                     </svg>
                                 </button>
                             </form>
-                            <button class="btn btn-ghost btn-xs text-error tooltip" data-tip="Delete"
+                            <button class="btn-danger p-1" data-tooltip="Delete"
                                     onclick="confirmDeleteBacktest({{ run.pk }}, '{{ run.strategy }} {{ run.instrument }}')">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2">
                                     <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -143,203 +115,152 @@
     </div>
 </div>
 {% else %}
-<div class="hero min-h-[50vh]">
-    <div class="hero-content text-center">
-        <div class="max-w-md">
-            <h2 class="text-xl font-bold mb-4">No backtests yet</h2>
-            <p class="mb-6 opacity-60">Start a backtest from the button above, or run one from the CLI with <code class="kbd kbd-sm">--save</code>.</p>
-            <div class="mockup-code text-left text-sm">
-                <pre data-prefix="$"><code>pyfx generate-sample-data</code></pre>
-                <pre data-prefix="$"><code>pyfx backtest -s sample_sma -i EUR/USD \</code></pre>
-                <pre data-prefix=" "><code>  --start 2023-01-01 --end 2023-12-31 \</code></pre>
-                <pre data-prefix=" "><code>  --data-file ~/.pyfx/data/EURUSD_365d_M1.parquet \</code></pre>
-                <pre data-prefix=" "><code>  --save</code></pre>
-            </div>
+<div class="flex items-center justify-center min-h-[50vh]">
+    <div class="text-center max-w-md">
+        <h2 class="text-lg font-semibold text-txt-raise mb-3">No backtests yet</h2>
+        <p class="text-sm text-txt-secondary mb-5">Start a backtest from the button above, or run one from the CLI with <code class="font-mono text-accent text-xs">--save</code>.</p>
+        <div class="ox-code text-left text-xs">
+            <div><span class="prefix">$ </span>pyfx generate-sample-data</div>
+            <div><span class="prefix">$ </span>pyfx backtest -s sample_sma -i EUR/USD \</div>
+            <div><span class="prefix">  </span>  --start 2023-01-01 --end 2023-12-31 \</div>
+            <div><span class="prefix">  </span>  --data-file ~/.pyfx/data/EURUSD_365d_M1.parquet \</div>
+            <div><span class="prefix">  </span>  --save</div>
         </div>
     </div>
 </div>
 {% endif %}
 
 <!-- Delete Confirmation Modal -->
-<dialog id="delete-backtest-modal" class="modal">
-    <div class="modal-box">
-        <h3 class="font-bold text-lg">Delete Backtest</h3>
-        <p class="py-4">Are you sure you want to delete <strong id="delete-backtest-name"></strong>? This cannot be undone.</p>
-        <div class="modal-action">
-            <form method="dialog">
-                <button class="btn btn-ghost">Cancel</button>
-            </form>
+<div id="delete-backtest-modal" class="ox-modal-backdrop hidden">
+    <div class="ox-modal">
+        <h3 class="text-sm font-semibold text-txt-raise mb-3">Delete Backtest</h3>
+        <p class="text-sm text-txt-secondary mb-5">Are you sure you want to delete <strong id="delete-backtest-name" class="text-txt-raise"></strong>? This cannot be undone.</p>
+        <div class="flex justify-end gap-2">
+            <button class="btn-ghost text-xs" onclick="document.getElementById('delete-backtest-modal').classList.add('hidden')">Cancel</button>
             <form id="delete-backtest-form" method="post">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-error">Delete</button>
+                <button type="submit" class="btn-accent text-xs" style="background: #e5484d;">Delete</button>
             </form>
         </div>
     </div>
-    <form method="dialog" class="modal-backdrop"><button>close</button></form>
-</dialog>
+</div>
 
 {% endblock %}
 
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // ── Search filter ──
+    var searchInput = document.getElementById('search-filter');
+    var tbody = document.getElementById('backtest-tbody');
+    if (searchInput && tbody) {
+        searchInput.addEventListener('input', function() {
+            var q = this.value.toLowerCase();
+            tbody.querySelectorAll('tr').forEach(function(row) {
+                var strategy = (row.dataset.strategy || '').toLowerCase();
+                row.style.display = !q || strategy.indexOf(q) !== -1 ? '' : 'none';
+            });
+        });
+    }
+
     // ── Running backtests live progress ──
-    const container = document.getElementById('running-backtests');
-    let knownRunIds = new Set();
-    let elapsedTimerHandle = null;
+    var container = document.getElementById('running-backtests');
+    var knownRunIds = new Set();
+    var elapsedTimerHandle = null;
 
     function formatBars(n) {
-        if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-        if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
         return n.toString();
     }
 
     function buildCard(bt) {
-        const card = document.createElement('div');
-        card.className = 'running-card card bg-base-100 border border-primary/20 shadow-lg';
+        var card = document.createElement('div');
+        card.className = 'ox-card animate-fade-in p-4';
+        card.style.borderLeftColor = '#48d597';
+        card.style.borderLeftWidth = '2px';
         card.id = 'running-card-' + bt.id;
         card.setAttribute('data-created-at', bt.created_at);
 
-        const isEnginePhase = bt.progress_pct >= 20 && bt.progress_pct < 90;
-        const pct = bt.progress_pct;
-
+        var pct = bt.progress_pct;
         card.innerHTML =
-            '<div class="card-body p-4 gap-3">' +
-                '<!-- Header -->' +
-                '<div class="flex items-center justify-between">' +
-                    '<div class="flex items-center gap-2 min-w-0">' +
-                        '<span class="inline-block w-2 h-2 rounded-full bg-primary pulse-dot shrink-0"></span>' +
-                        '<span class="badge badge-primary badge-sm font-mono"></span>' +
-                        '<span class="text-base-content/40">&middot;</span>' +
-                        '<span class="text-sm font-medium truncate"></span>' +
-                    '</div>' +
-                    '<span class="text-xs text-base-content/40 whitespace-nowrap"></span>' +
+            '<div class="flex items-center justify-between mb-2">' +
+                '<div class="flex items-center gap-2">' +
+                    '<span class="status-dot status-dot-success animate-pulse-dot"></span>' +
+                    '<span class="ox-badge ox-badge-accent"></span>' +
+                    '<span class="text-txt-tertiary text-xs">&middot;</span>' +
+                    '<span class="text-xs font-mono text-txt-secondary"></span>' +
                 '</div>' +
-                '<!-- Progress -->' +
+                '<span class="text-[10px] font-mono text-txt-tertiary"></span>' +
+            '</div>' +
+            '<div class="flex items-center gap-3 mb-2">' +
+                '<div class="flex-1 ox-progress-track">' +
+                    '<div class="ox-progress-fill" style="width:' + pct + '%"></div>' +
+                '</div>' +
+                '<span class="text-xs font-mono text-accent w-8 text-right">' + pct + '%</span>' +
+            '</div>' +
+            '<div class="flex items-center justify-between text-[11px] font-mono text-txt-tertiary">' +
                 '<div class="flex items-center gap-3">' +
-                    '<div class="flex-1 relative">' +
-                        '<div class="w-full bg-base-300 rounded-full h-2 overflow-hidden">' +
-                            '<div class="progress-bar-fill h-full rounded-full bg-primary relative overflow-hidden" style="width:' + pct + '%">' +
-                                (isEnginePhase ? '<div class="shimmer-active absolute inset-0"></div>' : '') +
-                            '</div>' +
-                        '</div>' +
-                    '</div>' +
-                    '<span class="text-xs font-mono text-primary w-8 text-right">' + pct + '%</span>' +
+                    '<span class="progress-msg"></span>' +
+                    (bt.total_bars > 0 ? '<span>' + formatBars(bt.total_bars) + ' bars</span>' : '') +
                 '</div>' +
-                '<!-- Footer -->' +
-                '<div class="flex items-center justify-between text-xs text-base-content/50">' +
-                    '<div class="flex items-center gap-3">' +
-                        '<span class="progress-msg"></span>' +
-                        (bt.total_bars > 0
-                            ? '<span class="flex items-center gap-1">' +
-                                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2"><path d="M3 3v18h18" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 16l4-8 4 4 4-8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-                                '<span>' + formatBars(bt.total_bars) + ' bars</span>' +
-                              '</span>'
-                            : '') +
-                    '</div>' +
-                    '<span class="flex items-center gap-1">' +
-                        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' +
-                        '<span class="elapsed-time">0.0s</span>' +
-                    '</span>' +
-                '</div>' +
+                '<span class="elapsed-time">0.0s</span>' +
             '</div>';
 
-        // Set text content safely (XSS prevention)
-        const badge = card.querySelector('.badge');
+        var badge = card.querySelector('.ox-badge');
         badge.textContent = bt.strategy;
-        const instrument = card.querySelectorAll('.flex.items-center.gap-2 span')[3];
-        instrument.textContent = bt.instrument;
-        const dateRange = card.querySelector('.flex.items-center.justify-between > span:last-child');
-        dateRange.textContent = bt.start + ' \u2192 ' + bt.end;
-        const msgEl = card.querySelector('.progress-msg');
-        msgEl.textContent = bt.progress_message;
+        var spans = card.querySelectorAll('.flex.items-center.gap-2 span');
+        spans[3].textContent = bt.instrument;
+        var dateSpan = card.querySelector('.flex.items-center.justify-between > span:last-child');
+        dateSpan.textContent = bt.start + ' \u2192 ' + bt.end;
+        card.querySelector('.progress-msg').textContent = bt.progress_message;
 
         return card;
     }
 
     function updateCard(card, bt) {
-        const pct = bt.progress_pct;
-        const isEnginePhase = pct >= 20 && pct < 90;
-        const fill = card.querySelector('.progress-bar-fill');
-        fill.style.width = pct + '%';
-
-        // Toggle shimmer
-        const existingShimmer = fill.querySelector('.shimmer-active');
-        if (isEnginePhase && !existingShimmer) {
-            const shimDiv = document.createElement('div');
-            shimDiv.className = 'shimmer-active absolute inset-0';
-            fill.appendChild(shimDiv);
-        } else if (!isEnginePhase && existingShimmer) {
-            existingShimmer.remove();
-        }
-
-        // Update percentage
-        const pctEl = card.querySelector('.text-xs.font-mono.text-primary');
-        pctEl.textContent = pct + '%';
-
-        // Update message
-        const msgEl = card.querySelector('.progress-msg');
-        msgEl.textContent = bt.progress_message;
-
-        // Update bars if newly available
-        if (bt.total_bars > 0) {
-            const barsArea = card.querySelector('.flex.items-center.gap-3');
-            if (!barsArea.querySelector('svg')) {
-                const span = document.createElement('span');
-                span.className = 'flex items-center gap-1';
-                span.innerHTML =
-                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3 h-3" stroke-width="2"><path d="M3 3v18h18" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 16l4-8 4 4 4-8" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-                    '<span>' + formatBars(bt.total_bars) + ' bars</span>';
-                barsArea.appendChild(span);
-            }
-        }
+        var fill = card.querySelector('.ox-progress-fill');
+        fill.style.width = bt.progress_pct + '%';
+        card.querySelector('.text-xs.font-mono.text-accent').textContent = bt.progress_pct + '%';
+        card.querySelector('.progress-msg').textContent = bt.progress_message;
     }
 
     function updateElapsedTimes() {
-        const now = Date.now();
-        container.querySelectorAll('[data-created-at]').forEach(card => {
-            const created = new Date(card.getAttribute('data-created-at')).getTime();
-            const elapsed = (now - created) / 1000;
-            const el = card.querySelector('.elapsed-time');
+        var now = Date.now();
+        container.querySelectorAll('[data-created-at]').forEach(function(card) {
+            var created = new Date(card.getAttribute('data-created-at')).getTime();
+            var elapsed = (now - created) / 1000;
+            var el = card.querySelector('.elapsed-time');
             if (el) el.textContent = formatDuration(elapsed);
         });
     }
 
     function pollRunning() {
         fetch('{% url "dashboard:api_running_backtests" %}')
-            .then(r => r.json())
-            .then(data => {
-                const currentIds = new Set(data.map(bt => bt.id));
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var currentIds = new Set(data.map(function(bt) { return bt.id; }));
 
-                // If a previously known run is gone, it finished - reload
-                for (const oldId of knownRunIds) {
+                for (var oldId of knownRunIds) {
                     if (!currentIds.has(oldId)) {
                         window.location.reload();
                         return;
                     }
                 }
 
-                // Update or create cards
-                data.forEach(bt => {
-                    const existing = document.getElementById('running-card-' + bt.id);
-                    if (existing) {
-                        updateCard(existing, bt);
-                    } else {
-                        container.appendChild(buildCard(bt));
-                    }
+                data.forEach(function(bt) {
+                    var existing = document.getElementById('running-card-' + bt.id);
+                    if (existing) { updateCard(existing, bt); }
+                    else { container.appendChild(buildCard(bt)); }
                 });
 
-                // Remove cards for runs no longer in the response
-                container.querySelectorAll('[id^="running-card-"]').forEach(card => {
-                    const cardId = parseInt(card.id.replace('running-card-', ''));
-                    if (!currentIds.has(cardId)) {
-                        card.remove();
-                    }
+                container.querySelectorAll('[id^="running-card-"]').forEach(function(card) {
+                    var cardId = parseInt(card.id.replace('running-card-', ''));
+                    if (!currentIds.has(cardId)) card.remove();
                 });
 
                 knownRunIds = currentIds;
 
-                // Manage elapsed timer
                 if (data.length > 0 && !elapsedTimerHandle) {
                     elapsedTimerHandle = setInterval(updateElapsedTimes, 1000);
                 } else if (data.length === 0 && elapsedTimerHandle) {
@@ -347,33 +268,31 @@ document.addEventListener('DOMContentLoaded', function() {
                     elapsedTimerHandle = null;
                 }
             })
-            .catch(() => {});  // Silently retry on network error
+            .catch(function() {});
     }
 
-    // Start polling
     pollRunning();
     setInterval(pollRunning, 2000);
 
     // ── Sortable table columns ──
-    document.querySelectorAll('th[data-sort]').forEach(th => {
-        th.addEventListener('click', () => {
-            const table = th.closest('table');
-            const tbody = table.querySelector('tbody');
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            const idx = Array.from(th.parentNode.children).indexOf(th);
-            const type = th.dataset.sort; // "num" or "str"
-            const asc = !th.classList.contains('asc');
+    document.querySelectorAll('th[data-sort]').forEach(function(th) {
+        th.addEventListener('click', function() {
+            var table = th.closest('table');
+            var tbody = table.querySelector('tbody');
+            var rows = Array.from(tbody.querySelectorAll('tr'));
+            var idx = Array.from(th.parentNode.children).indexOf(th);
+            var type = th.dataset.sort;
+            var asc = !th.classList.contains('asc');
 
-            // Reset all headers
-            th.parentNode.querySelectorAll('th[data-sort]').forEach(h => {
+            th.parentNode.querySelectorAll('th[data-sort]').forEach(function(h) {
                 h.classList.remove('asc', 'desc');
             });
             th.classList.add(asc ? 'asc' : 'desc');
 
-            rows.sort((a, b) => {
-                const cellA = a.children[idx];
-                const cellB = b.children[idx];
-                let va, vb;
+            rows.sort(function(a, b) {
+                var cellA = a.children[idx];
+                var cellB = b.children[idx];
+                var va, vb;
                 if (type === 'num') {
                     va = parseFloat(cellA.dataset.val || cellA.textContent.replace(/[^0-9.\-]/g, '')) || 0;
                     vb = parseFloat(cellB.dataset.val || cellB.textContent.replace(/[^0-9.\-]/g, '')) || 0;
@@ -386,7 +305,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return 0;
             });
 
-            rows.forEach(r => tbody.appendChild(r));
+            rows.forEach(function(r) { tbody.appendChild(r); });
         });
     });
 });
@@ -395,7 +314,7 @@ document.addEventListener('DOMContentLoaded', function() {
 function confirmDeleteBacktest(id, name) {
     document.getElementById('delete-backtest-name').textContent = name;
     document.getElementById('delete-backtest-form').action = '/run/' + id + '/delete/';
-    document.getElementById('delete-backtest-modal').showModal();
+    document.getElementById('delete-backtest-modal').classList.remove('hidden');
 }
 </script>
 {% endblock %}

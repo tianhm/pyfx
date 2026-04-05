@@ -19,6 +19,8 @@ urlpatterns = [
     path("api/run/<int:pk>/indicators/", views.api_indicators, name="api_indicators"),
     path("api/run/<int:pk>/equity/", views.api_equity_curve, name="api_equity_curve"),
     path("api/run/<int:pk>/trades/", views.api_trades, name="api_trades"),
+    path("api/run/<int:pk>/trade-markers/", views.api_trade_markers, name="api_trade_markers"),
+    path("api/run/<int:pk>/cumulative-pnl/", views.api_cumulative_pnl, name="api_cumulative_pnl"),
     path("api/running-count/", views.api_running_count, name="api_running_count"),
     path("api/running-backtests/", views.api_running_backtests, name="api_running_backtests"),
     # Dataset routes
