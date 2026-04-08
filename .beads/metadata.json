@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "pyfx_cli",
+  "project_id": "2cd0b549-9222-4cd7-ae57-c88c6524abd4"
+}
