@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -766,6 +766,203 @@ def paper_list(request: HttpRequest) -> HttpResponse:
     })
 
 
+def paper_new(request: HttpRequest) -> HttpResponse:
+    """Configuration form for starting a new paper trading session."""
+    from pyfx.adapters.instruments import list_supported_instruments
+    from pyfx.core.config import settings as pyfx_settings
+
+    ib_warnings = pyfx_settings.validate_ib_config()
+    return render(request, "dashboard/paper_new.html", {
+        "active_nav": "paper",
+        "instruments": list_supported_instruments(),
+        "ib_config": {
+            "host": pyfx_settings.ib_host,
+            "port": pyfx_settings.ib_port,
+            "account_id": pyfx_settings.ib_account_id or "",
+            "trading_mode": pyfx_settings.ib_trading_mode,
+            "read_only_api": pyfx_settings.ib_read_only_api,
+        },
+        "ib_warnings": ib_warnings,
+        "ib_configured": pyfx_settings.ib_account_id is not None,
+        "risk_defaults": {
+            "max_positions": pyfx_settings.risk_max_positions,
+            "max_position_size": float(pyfx_settings.risk_max_position_size),
+            "daily_loss_limit": pyfx_settings.risk_daily_loss_limit,
+            "max_drawdown_pct": pyfx_settings.risk_max_drawdown_pct,
+            "position_size_pct": pyfx_settings.risk_position_size_pct,
+            "max_notional_per_order": pyfx_settings.risk_max_notional_per_order,
+            "risk_sizing_method": pyfx_settings.risk_sizing_method,
+            "account_currency": pyfx_settings.account_currency,
+        },
+        "errors": {},
+        "submitted": {},
+    })
+
+
+def _validate_paper_start(post: dict[str, object]) -> dict[str, str]:
+    """Validate paper trading form data. Returns field->error mapping."""
+    errors: dict[str, str] = {}
+    if not post.get("strategy"):
+        errors["strategy"] = "Strategy is required"
+    if not post.get("instruments"):
+        errors["instruments"] = "Select at least one instrument"
+    try:
+        v = float(post.get("daily_loss_limit", 2000))  # type: ignore[arg-type]
+        if v <= 0:
+            errors["daily_loss_limit"] = "Must be positive"
+    except (ValueError, TypeError):
+        errors["daily_loss_limit"] = "Must be a number"
+    try:
+        v = float(post.get("max_drawdown_pct", 10))  # type: ignore[arg-type]
+        if not 0 < v <= 100:
+            errors["max_drawdown_pct"] = "Must be between 0 and 100"
+    except (ValueError, TypeError):
+        errors["max_drawdown_pct"] = "Must be a number"
+    try:
+        v = float(post.get("position_size_pct", 2))  # type: ignore[arg-type]
+        if not 0 < v <= 100:
+            errors["position_size_pct"] = "Must be between 0 and 100"
+    except (ValueError, TypeError):
+        errors["position_size_pct"] = "Must be a number"
+    try:
+        v_int = int(str(post.get("max_positions", 3)))
+        if v_int < 1:
+            errors["max_positions"] = "Must be at least 1"
+    except (ValueError, TypeError):
+        errors["max_positions"] = "Must be a whole number"
+    sizing = post.get("risk_sizing_method", "fixed_fractional")
+    if sizing not in ("fixed_fractional", "atr_based"):
+        errors["risk_sizing_method"] = "Must be fixed_fractional or atr_based"
+    return errors
+
+
+def paper_start(request: HttpRequest) -> HttpResponse:
+    """Start a new paper trading session via POST."""
+    if request.method != "POST":
+        return redirect("dashboard:paper_list")
+
+    from pyfx.core.config import settings as pyfx_settings
+    from pyfx.core.types import parse_strategy_params
+
+    # Gather submitted values
+    strategy = request.POST.get("strategy", "").strip()
+    instruments = request.POST.getlist("instruments")
+    bar_type = request.POST.get("bar_type", "1-MINUTE-LAST-EXTERNAL").strip()
+    extra_bar_types = [
+        v.strip() for v in request.POST.getlist("extra_bar_types") if v.strip()
+    ]
+    trade_size = request.POST.get("trade_size", "100000").strip()
+
+    # Risk overrides
+    max_positions = request.POST.get("max_positions", "3")
+    max_position_size = request.POST.get("max_position_size", "100000")
+    daily_loss_limit = request.POST.get("daily_loss_limit", "2000")
+    max_drawdown_pct = request.POST.get("max_drawdown_pct", "10")
+    position_size_pct = request.POST.get("position_size_pct", "2")
+    max_notional_per_order = request.POST.get("max_notional_per_order", "500000")
+    risk_sizing_method = request.POST.get("risk_sizing_method", "fixed_fractional")
+
+    submitted = {
+        "strategy": strategy,
+        "instruments": instruments,
+        "bar_type": bar_type,
+        "extra_bar_types": extra_bar_types,
+        "trade_size": trade_size,
+        "max_positions": max_positions,
+        "max_position_size": max_position_size,
+        "daily_loss_limit": daily_loss_limit,
+        "max_drawdown_pct": max_drawdown_pct,
+        "position_size_pct": position_size_pct,
+        "max_notional_per_order": max_notional_per_order,
+        "risk_sizing_method": risk_sizing_method,
+    }
+
+    errors = _validate_paper_start({
+        "strategy": strategy,
+        "instruments": instruments,
+        "daily_loss_limit": daily_loss_limit,
+        "max_drawdown_pct": max_drawdown_pct,
+        "position_size_pct": position_size_pct,
+        "max_positions": max_positions,
+        "risk_sizing_method": risk_sizing_method,
+    })
+
+    if errors:
+        from pyfx.adapters.instruments import list_supported_instruments
+
+        return render(request, "dashboard/paper_new.html", {
+            "active_nav": "paper",
+            "instruments": list_supported_instruments(),
+            "ib_config": {
+                "host": pyfx_settings.ib_host,
+                "port": pyfx_settings.ib_port,
+                "account_id": pyfx_settings.ib_account_id or "",
+                "trading_mode": pyfx_settings.ib_trading_mode,
+                "read_only_api": pyfx_settings.ib_read_only_api,
+            },
+            "ib_warnings": pyfx_settings.validate_ib_config(),
+            "ib_configured": pyfx_settings.ib_account_id is not None,
+            "risk_defaults": {
+                "max_positions": pyfx_settings.risk_max_positions,
+                "max_position_size": float(pyfx_settings.risk_max_position_size),
+                "daily_loss_limit": pyfx_settings.risk_daily_loss_limit,
+                "max_drawdown_pct": pyfx_settings.risk_max_drawdown_pct,
+                "position_size_pct": pyfx_settings.risk_position_size_pct,
+                "max_notional_per_order": pyfx_settings.risk_max_notional_per_order,
+                "risk_sizing_method": pyfx_settings.risk_sizing_method,
+                "account_currency": pyfx_settings.account_currency,
+            },
+            "errors": errors,
+            "submitted": submitted,
+        })
+
+    # Strategy params
+    raw_params = {
+        key[6:]: str(request.POST[key])
+        for key in request.POST
+        if key.startswith("param_")
+    }
+    strategy_params: dict[str, bool | int | float | str] = parse_strategy_params(
+        raw_params,
+    )
+
+    risk_overrides = {
+        "risk_max_positions": int(max_positions),
+        "risk_max_position_size": int(max_position_size),
+        "risk_daily_loss_limit": float(daily_loss_limit),
+        "risk_max_drawdown_pct": float(max_drawdown_pct),
+        "risk_position_size_pct": float(position_size_pct),
+        "risk_max_notional_per_order": int(max_notional_per_order),
+        "risk_sizing_method": risk_sizing_method,
+    }
+
+    config_json = {
+        "strategy": strategy,
+        "instruments": instruments,
+        "bar_type": bar_type,
+        "extra_bar_types": extra_bar_types,
+        "strategy_params": strategy_params,
+        "trade_size": trade_size,
+        "account_currency": pyfx_settings.account_currency,
+        "risk_overrides": risk_overrides,
+    }
+
+    session = PaperTradingSession.objects.create(
+        status=PaperTradingSession.STATUS_RUNNING,
+        strategy=strategy,
+        instrument=",".join(instruments),
+        bar_type=bar_type,
+        started_at=datetime.now(UTC),
+        account_currency=pyfx_settings.account_currency,
+        account_id=pyfx_settings.ib_account_id or "",
+        config_json=config_json,
+    )
+
+    _spawn_management_command("run_paper_web", "--session-id", str(session.pk))
+
+    return redirect("dashboard:paper_list")
+
+
 def paper_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """Detail view for a single paper trading session."""
     session = get_object_or_404(PaperTradingSession, pk=pk)
@@ -972,3 +1169,42 @@ def api_paper_trade_markers(request: HttpRequest, pk: int) -> JsonResponse:
                 "tradeIdx": idx,
             })
     return JsonResponse(markers, safe=False)
+
+
+# ---------------------------------------------------------------------------
+# API: IB config & instruments
+# ---------------------------------------------------------------------------
+
+
+def api_ib_config(request: HttpRequest) -> JsonResponse:
+    """Return IB connection config (no password) and validation warnings."""
+    from pyfx.core.config import settings as pyfx_settings
+
+    account_id = pyfx_settings.ib_account_id or ""
+    return JsonResponse({
+        "host": pyfx_settings.ib_host,
+        "port": pyfx_settings.ib_port,
+        "account_id": account_id,
+        "trading_mode": pyfx_settings.ib_trading_mode,
+        "read_only_api": pyfx_settings.ib_read_only_api,
+        "account_type": "paper" if account_id.startswith("DU") else "live",
+        "configured": bool(pyfx_settings.ib_account_id),
+        "warnings": pyfx_settings.validate_ib_config(),
+    })
+
+
+def api_supported_instruments(request: HttpRequest) -> JsonResponse:
+    """Return supported instruments with metadata."""
+    from pyfx.adapters.instruments import get_instrument_meta, list_supported_instruments
+
+    instruments = list_supported_instruments()
+    data = []
+    for name in instruments:
+        meta = get_instrument_meta(name)
+        data.append({
+            "name": name,
+            "tick_size": float(meta.tick_size),
+            "lot_size": meta.lot_size,
+            "pip_value": float(meta.pip_value),
+        })
+    return JsonResponse(data, safe=False)

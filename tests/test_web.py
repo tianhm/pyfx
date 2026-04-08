@@ -272,6 +272,26 @@ class BacktestDetailViewTests(TestCase):
         assert "relaxed" in content
         assert "rsi_period" in content
 
+    def test_detail_zero_avg_loss(self) -> None:
+        """Branch: avg_loss=0 -> win_loss_ratio stays None."""
+        run = _create_run(avg_loss=0.0, num_trades=3, win_rate=1.0)
+        resp = self.client.get(f"/run/{run.pk}/")
+        assert resp.context["win_loss_ratio"] is None
+
+    def test_detail_extra_bar_types_with_duplicate(self) -> None:
+        """Branch: extra_bar_types contains 1-MINUTE (already in list)."""
+        run = _create_run(extra_bar_types=["1-MINUTE-LAST-EXTERNAL", "5-MINUTE-LAST-EXTERNAL"])
+        resp = self.client.get(f"/run/{run.pk}/")
+        tfs = json.loads(resp.context["available_timeframes_json"])
+        assert tfs.count("1-MINUTE-LAST-EXTERNAL") == 1  # no duplicate
+
+    def test_detail_strategy_without_chart_indicators(self) -> None:
+        """Branch: strategy exists but has no chart_indicators method."""
+        run = _create_run(strategy="coban_experimental")
+        resp = self.client.get(f"/run/{run.pk}/")
+        inds = json.loads(resp.context["chart_indicators_json"])
+        assert inds == []
+
 
 class BacktestDeleteViewTests(TestCase):
     def setUp(self):
@@ -2650,3 +2670,453 @@ class ApiPaperTradeMarkersTests(TestCase):
     def test_trade_markers_404(self) -> None:
         resp = self.client.get("/api/paper/99999/trade-markers/")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Paper New / Start View Tests
+# ---------------------------------------------------------------------------
+
+
+class PaperNewViewTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+
+    def test_paper_new_renders_200(self) -> None:
+        resp = self.client.get("/paper/new/")
+        assert resp.status_code == 200
+        assert resp.context["active_nav"] == "paper"
+
+    def test_paper_new_context_instruments(self) -> None:
+        resp = self.client.get("/paper/new/")
+        instruments = resp.context["instruments"]
+        assert "XAU/USD" in instruments
+        assert "EUR/USD" in instruments
+        assert len(instruments) == 8
+
+    def test_paper_new_context_risk_defaults(self) -> None:
+        resp = self.client.get("/paper/new/")
+        rd = resp.context["risk_defaults"]
+        assert rd["max_positions"] == 3
+        assert rd["daily_loss_limit"] == 2000.0
+        assert rd["max_drawdown_pct"] == 10.0
+        assert rd["position_size_pct"] == 2.0
+        assert rd["risk_sizing_method"] == "fixed_fractional"
+        assert rd["account_currency"] == "USD"
+
+    def test_paper_new_context_ib_config(self) -> None:
+        resp = self.client.get("/paper/new/")
+        ib = resp.context["ib_config"]
+        assert "host" in ib
+        assert "port" in ib
+        assert "trading_mode" in ib
+        assert "password" not in ib
+
+    def test_paper_new_contains_form_elements(self) -> None:
+        resp = self.client.get("/paper/new/")
+        content = resp.content.decode()
+        assert "Risk Management" in content
+        assert "Strategy" in content
+        assert "Start Paper Trading" in content
+
+
+class PaperStartViewTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+
+    def test_get_redirects(self) -> None:
+        resp = self.client.get("/paper/start/")
+        assert resp.status_code == 302
+
+    @patch("pyfx.web.dashboard.views._spawn_management_command")
+    def test_creates_session(self, mock_spawn: MagicMock) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+            "trade_size": "100000",
+            "max_positions": "3",
+            "max_position_size": "100000",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "max_notional_per_order": "500000",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert resp.status_code == 302
+        assert resp.url == "/paper/"  # type: ignore[attr-defined]
+        assert PaperTradingSession.objects.count() == 1
+
+    @patch("pyfx.web.dashboard.views._spawn_management_command")
+    def test_spawns_subprocess(self, mock_spawn: MagicMock) -> None:
+        self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+            "trade_size": "100000",
+            "max_positions": "3",
+            "max_position_size": "100000",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "max_notional_per_order": "500000",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        mock_spawn.assert_called_once()
+        args = mock_spawn.call_args[0]
+        assert args[0] == "run_paper_web"
+        assert args[1] == "--session-id"
+
+    @patch("pyfx.web.dashboard.views._spawn_management_command")
+    def test_stores_risk_overrides(self, mock_spawn: MagicMock) -> None:
+        self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+            "trade_size": "100000",
+            "max_positions": "5",
+            "max_position_size": "200000",
+            "daily_loss_limit": "3000",
+            "max_drawdown_pct": "15",
+            "position_size_pct": "3",
+            "max_notional_per_order": "600000",
+            "risk_sizing_method": "atr_based",
+        })
+        session = PaperTradingSession.objects.first()
+        assert session is not None
+        overrides = session.config_json["risk_overrides"]
+        assert overrides["risk_max_positions"] == 5
+        assert overrides["risk_daily_loss_limit"] == 3000.0
+        assert overrides["risk_sizing_method"] == "atr_based"
+
+    @patch("pyfx.web.dashboard.views._spawn_management_command")
+    def test_stores_strategy_params(self, mock_spawn: MagicMock) -> None:
+        self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+            "trade_size": "100000",
+            "max_positions": "3",
+            "max_position_size": "100000",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "max_notional_per_order": "500000",
+            "risk_sizing_method": "fixed_fractional",
+            "param_entry_mode": "trend_follow",
+            "param_sma_fast_period": "3",
+        })
+        session = PaperTradingSession.objects.first()
+        assert session is not None
+        sp = session.config_json["strategy_params"]
+        assert sp["entry_mode"] == "trend_follow"
+        assert sp["sma_fast_period"] == 3
+
+    @patch("pyfx.web.dashboard.views._spawn_management_command")
+    def test_multiple_instruments(self, mock_spawn: MagicMock) -> None:
+        self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD", "EUR/USD"],
+            "bar_type": "1-MINUTE-LAST-EXTERNAL",
+            "trade_size": "100000",
+            "max_positions": "3",
+            "max_position_size": "100000",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "max_notional_per_order": "500000",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        session = PaperTradingSession.objects.first()
+        assert session is not None
+        assert session.instrument == "XAU/USD,EUR/USD"
+
+    def test_validates_no_strategy(self) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "",
+            "instruments": ["XAU/USD"],
+            "max_positions": "3",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert resp.status_code == 200  # re-renders form
+        assert "strategy" in resp.context["errors"]
+        assert PaperTradingSession.objects.count() == 0
+
+    def test_validates_no_instruments(self) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "max_positions": "3",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert resp.status_code == 200
+        assert "instruments" in resp.context["errors"]
+
+    def test_validates_negative_daily_loss(self) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "max_positions": "3",
+            "daily_loss_limit": "-100",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert resp.status_code == 200
+        assert "daily_loss_limit" in resp.context["errors"]
+
+    def test_validates_drawdown_over_100(self) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "max_positions": "3",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "101",
+            "position_size_pct": "2",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert resp.status_code == 200
+        assert "max_drawdown_pct" in resp.context["errors"]
+
+    def test_validates_zero_drawdown(self) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "max_positions": "3",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "0",
+            "position_size_pct": "2",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert resp.status_code == 200
+        assert "max_drawdown_pct" in resp.context["errors"]
+
+    def test_validates_zero_max_positions(self) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "max_positions": "0",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert resp.status_code == 200
+        assert "max_positions" in resp.context["errors"]
+
+    def test_validates_bad_sizing_method(self) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "coban_reborn",
+            "instruments": ["XAU/USD"],
+            "max_positions": "3",
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "risk_sizing_method": "bogus",
+        })
+        assert resp.status_code == 200
+        assert "risk_sizing_method" in resp.context["errors"]
+
+    def test_validation_preserves_submitted_values(self) -> None:
+        resp = self.client.post("/paper/start/", {
+            "strategy": "",
+            "instruments": ["XAU/USD"],
+            "daily_loss_limit": "3500",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "max_positions": "3",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert resp.status_code == 200
+        assert resp.context["submitted"]["daily_loss_limit"] == "3500"
+
+
+class ValidatePaperStartTests(TestCase):
+    """Test the _validate_paper_start helper directly."""
+
+    def test_valid_input(self) -> None:
+        from pyfx.web.dashboard.views import _validate_paper_start
+
+        errors = _validate_paper_start({
+            "strategy": "test",
+            "instruments": ["XAU/USD"],
+            "daily_loss_limit": "2000",
+            "max_drawdown_pct": "10",
+            "position_size_pct": "2",
+            "max_positions": "3",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert errors == {}
+
+    def test_all_invalid(self) -> None:
+        from pyfx.web.dashboard.views import _validate_paper_start
+
+        errors = _validate_paper_start({
+            "strategy": "",
+            "instruments": [],
+            "daily_loss_limit": "-1",
+            "max_drawdown_pct": "200",
+            "position_size_pct": "0",
+            "max_positions": "0",
+            "risk_sizing_method": "nope",
+        })
+        assert len(errors) >= 5
+
+    def test_non_numeric_values(self) -> None:
+        from pyfx.web.dashboard.views import _validate_paper_start
+
+        errors = _validate_paper_start({
+            "strategy": "test",
+            "instruments": ["XAU/USD"],
+            "daily_loss_limit": "abc",
+            "max_drawdown_pct": "xyz",
+            "position_size_pct": "nope",
+            "max_positions": "wat",
+            "risk_sizing_method": "fixed_fractional",
+        })
+        assert "daily_loss_limit" in errors
+        assert "max_drawdown_pct" in errors
+        assert "position_size_pct" in errors
+        assert "max_positions" in errors
+
+
+# ---------------------------------------------------------------------------
+# API: IB Config & Instruments
+# ---------------------------------------------------------------------------
+
+
+class ApiIbConfigTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+
+    def test_returns_json(self) -> None:
+        resp = self.client.get("/api/ib-config/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "host" in data
+        assert "port" in data
+        assert "trading_mode" in data
+        assert "warnings" in data
+        assert "configured" in data
+
+    def test_no_password_in_response(self) -> None:
+        resp = self.client.get("/api/ib-config/")
+        data = resp.json()
+        assert "password" not in data
+        assert "ib_password" not in data
+        # Also check raw content
+        assert b"password" not in resp.content.lower()
+
+
+class ApiSupportedInstrumentsTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+
+    def test_returns_all_instruments(self) -> None:
+        resp = self.client.get("/api/instruments/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 8
+        names = [i["name"] for i in data]
+        assert "XAU/USD" in names
+        assert "EUR/USD" in names
+
+    def test_instrument_metadata(self) -> None:
+        resp = self.client.get("/api/instruments/")
+        data = resp.json()
+        xau = next(i for i in data if i["name"] == "XAU/USD")
+        assert "tick_size" in xau
+        assert "lot_size" in xau
+        assert "pip_value" in xau
+
+
+# ---------------------------------------------------------------------------
+# Run Paper Web Command Tests
+# ---------------------------------------------------------------------------
+
+
+class RunPaperWebCommandTests(TestCase):
+    def test_session_not_found(self) -> None:
+        from django.core.management import call_command
+        from io import StringIO
+
+        err = StringIO()
+        call_command("run_paper_web", "--session-id", "99999", stderr=err)
+        assert "not found" in err.getvalue()
+
+    @patch("pyfx.live.runner.start_live_trading")
+    def test_calls_start_live_trading(self, mock_start: MagicMock) -> None:
+        from django.core.management import call_command
+
+        session = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            config_json={
+                "strategy": "coban_reborn",
+                "instruments": ["XAU/USD"],
+                "bar_type": "1-MINUTE-LAST-EXTERNAL",
+                "extra_bar_types": [],
+                "strategy_params": {},
+                "trade_size": "100000",
+                "account_currency": "USD",
+                "risk_overrides": {
+                    "risk_max_positions": 5,
+                    "risk_daily_loss_limit": 3000.0,
+                },
+            },
+        )
+        call_command("run_paper_web", "--session-id", str(session.pk))
+        mock_start.assert_called_once()
+        _, kwargs = mock_start.call_args
+        assert kwargs["session_id"] == session.pk
+
+    @patch("pyfx.live.runner.start_live_trading")
+    def test_sets_error_on_failure(self, mock_start: MagicMock) -> None:
+        from django.core.management import call_command
+
+        mock_start.side_effect = RuntimeError("boom")
+        session = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            config_json={
+                "strategy": "coban_reborn",
+                "instruments": ["XAU/USD"],
+                "bar_type": "1-MINUTE-LAST-EXTERNAL",
+                "extra_bar_types": [],
+                "strategy_params": {},
+                "trade_size": "100000",
+                "account_currency": "USD",
+            },
+        )
+        call_command("run_paper_web", "--session-id", str(session.pk))
+        session.refresh_from_db()
+        assert session.status == PaperTradingSession.STATUS_ERROR
+
+    @patch("pyfx.live.runner.start_live_trading")
+    def test_applies_risk_overrides(self, mock_start: MagicMock) -> None:
+        from django.core.management import call_command
+
+        session = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            config_json={
+                "strategy": "coban_reborn",
+                "instruments": ["XAU/USD"],
+                "bar_type": "1-MINUTE-LAST-EXTERNAL",
+                "extra_bar_types": [],
+                "strategy_params": {},
+                "trade_size": "100000",
+                "account_currency": "USD",
+                "risk_overrides": {
+                    "risk_max_positions": 7,
+                    "risk_daily_loss_limit": 5000.0,
+                },
+            },
+        )
+        call_command("run_paper_web", "--session-id", str(session.pk))
+        mock_start.assert_called_once()
+        call_args = mock_start.call_args
+        patched_settings = call_args[0][1]
+        assert patched_settings.risk_max_positions == 7
+        assert patched_settings.risk_daily_loss_limit == 5000.0

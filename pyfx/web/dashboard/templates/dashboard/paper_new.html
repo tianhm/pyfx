@@ -1,0 +1,560 @@
+{% extends "dashboard/base.html" %}
+{% block title %}pyfx - New Paper Trading Session{% endblock %}
+
+{% block content %}
+<!-- Breadcrumbs -->
+<div class="ox-breadcrumbs mb-4">
+    <a href="{% url 'dashboard:paper_list' %}">Paper Trading</a>
+    <span class="separator">/</span>
+    <span class="text-txt-secondary">New Session</span>
+</div>
+
+<h1 class="text-lg font-semibold text-txt-raise mb-5">New Paper Trading Session</h1>
+
+{% if errors %}
+<div class="ox-alert ox-alert-error mb-5">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4 shrink-0" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+    <span>Please fix the errors below before starting.</span>
+</div>
+{% endif %}
+
+<form id="paper-form" method="post" action="{% url 'dashboard:paper_start' %}">
+    {% csrf_token %}
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        <!-- ============ LEFT COLUMN: Core Config + IB + Submit ============ -->
+        <div class="space-y-4">
+
+            <!-- Strategy & Instruments -->
+            <div class="ox-card p-5 space-y-4">
+                <div class="section-label">Strategy & Instruments</div>
+
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">Strategy</label>
+                    <select id="strategy-select" name="strategy" class="ox-select w-full text-xs font-mono {% if errors.strategy %}border-error{% endif %}" required>
+                        <option value="" disabled {% if not submitted.strategy %}selected{% endif %}>Loading strategies...</option>
+                    </select>
+                    {% if errors.strategy %}<p class="text-[10px] font-mono text-error mt-1">{{ errors.strategy }}</p>{% endif %}
+                </div>
+
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-2">Instruments</label>
+                    {% if errors.instruments %}<p class="text-[10px] font-mono text-error mb-1">{{ errors.instruments }}</p>{% endif %}
+                    <div class="grid grid-cols-2 gap-2">
+                        {% for inst in instruments %}
+                        <label class="flex items-center gap-2 px-3 py-2 rounded-sm border border-ox-border hover:border-ox-border-raise cursor-pointer transition-colors text-xs font-mono {% if inst in submitted.instruments %}bg-accent-bg border-accent{% endif %}" id="inst-label-{{ forloop.counter }}">
+                            <input type="checkbox" name="instruments" value="{{ inst }}" class="ox-checkbox instrument-cb"
+                                {% if submitted.instruments %}{% if inst in submitted.instruments %}checked{% endif %}{% elif inst == "XAU/USD" %}checked{% endif %} />
+                            <span class="text-txt">{{ inst }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">Bar Type</label>
+                    <input type="text" name="bar_type" value="{{ submitted.bar_type|default:'1-MINUTE-LAST-EXTERNAL' }}" class="ox-input w-full text-[10px] font-mono" />
+                </div>
+
+                <!-- Extra Bar Types -->
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">Extra Bar Types</label>
+                    <div id="extra-bar-container" class="space-y-2">
+                        {% for ebt in submitted.extra_bar_types %}
+                        <div class="flex gap-2">
+                            <input type="text" name="extra_bar_types" value="{{ ebt }}" class="ox-input flex-1 text-[10px] font-mono" />
+                            <button type="button" class="btn-ghost text-xs px-2" onclick="this.parentElement.remove()">x</button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn-ghost text-xs mt-1" onclick="addExtraBarType()">+ Add bar type</button>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-mono text-txt-secondary mb-1">Trade Size</label>
+                    <input type="number" name="trade_size" value="{{ submitted.trade_size|default:'100000' }}" class="ox-input w-full text-xs font-mono" />
+                </div>
+            </div>
+
+            <!-- IB Connection Status -->
+            <div class="ox-card p-5 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div class="section-label">IB Connection</div>
+                    {% if ib_config.trading_mode == "paper" %}
+                    <span class="ox-badge ox-badge-accent">PAPER</span>
+                    {% else %}
+                    <span class="ox-badge ox-badge-error">LIVE</span>
+                    {% endif %}
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 text-xs font-mono">
+                    <div>
+                        <div class="text-txt-tertiary text-[10px] mb-0.5">HOST</div>
+                        <div class="text-txt">{{ ib_config.host }}:{{ ib_config.port }}</div>
+                    </div>
+                    <div>
+                        <div class="text-txt-tertiary text-[10px] mb-0.5">ACCOUNT</div>
+                        <div class="text-txt">{{ ib_config.account_id|default:"Not set" }}</div>
+                    </div>
+                </div>
+
+                {% if ib_config.read_only_api %}
+                <div class="ox-alert ox-alert-warning text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 shrink-0" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>Read-only API: orders disabled</span>
+                </div>
+                {% endif %}
+
+                {% for w in ib_warnings %}
+                <div class="ox-alert ox-alert-warning text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 shrink-0" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>{{ w }}</span>
+                </div>
+                {% endfor %}
+
+                {% if not ib_configured %}
+                <p class="text-[10px] font-mono text-txt-disabled">Configure via PYFX_IB_* environment variables</p>
+                {% endif %}
+            </div>
+
+            <!-- Submit -->
+            <button type="button" id="review-btn" class="btn-accent w-full flex items-center justify-center gap-2 py-2.5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Start Paper Trading
+            </button>
+        </div>
+
+        <!-- ============ CENTER COLUMN: Risk Management ============ -->
+        <div class="space-y-4">
+            <div class="ox-card p-5 space-y-5">
+                <div class="section-label">Risk Management</div>
+
+                <!-- Position Limits -->
+                <div class="space-y-3">
+                    <div class="text-xs font-mono text-txt-secondary flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 text-txt-tertiary" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                        Position Limits
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-mono text-txt-tertiary mb-1" data-tooltip="Maximum concurrent open positions">Max Positions</label>
+                            <input type="number" name="max_positions" value="{{ submitted.max_positions|default:risk_defaults.max_positions }}" min="1" class="ox-input w-full text-xs font-mono {% if errors.max_positions %}border-error{% endif %}" />
+                            {% if errors.max_positions %}<p class="text-[10px] font-mono text-error mt-0.5">{{ errors.max_positions }}</p>{% endif %}
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-mono text-txt-tertiary mb-1" data-tooltip="Maximum units per single position">Max Position Size</label>
+                            <input type="number" name="max_position_size" value="{{ submitted.max_position_size|default:risk_defaults.max_position_size|floatformat:0 }}" class="ox-input w-full text-xs font-mono" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-mono text-txt-tertiary mb-1" data-tooltip="NautilusTrader max notional per order">Max Notional / Order</label>
+                        <input type="number" name="max_notional_per_order" value="{{ submitted.max_notional_per_order|default:risk_defaults.max_notional_per_order }}" class="ox-input w-full text-xs font-mono" />
+                    </div>
+                </div>
+
+                <hr class="border-ox-border" />
+
+                <!-- Loss Limits -->
+                <div class="space-y-3">
+                    <div class="text-xs font-mono text-txt-secondary flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 text-txt-tertiary" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        Loss Limits
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-mono text-txt-tertiary mb-1" data-tooltip="Circuit breaker: auto-close all positions if daily loss exceeds this">Daily Loss Limit ({{ risk_defaults.account_currency }})</label>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs font-mono text-txt-tertiary">$</span>
+                            <input type="number" id="daily-loss-input" name="daily_loss_limit" value="{{ submitted.daily_loss_limit|default:risk_defaults.daily_loss_limit }}" step="100" min="1" class="ox-input flex-1 text-xs font-mono {% if errors.daily_loss_limit %}border-error{% endif %}" />
+                        </div>
+                        {% if errors.daily_loss_limit %}<p class="text-[10px] font-mono text-error mt-0.5">{{ errors.daily_loss_limit }}</p>{% endif %}
+                        <div id="daily-loss-hint" class="text-[10px] font-mono text-txt-disabled mt-1 hidden"></div>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="text-[10px] font-mono text-txt-tertiary" data-tooltip="Auto-stop all trading if drawdown exceeds this percentage">Max Drawdown %</label>
+                            <span id="dd-display" class="text-xs font-mono text-txt-raise">{{ submitted.max_drawdown_pct|default:risk_defaults.max_drawdown_pct }}%</span>
+                        </div>
+                        <div class="relative">
+                            <input type="range" id="dd-range" min="1" max="50" step="0.5" value="{{ submitted.max_drawdown_pct|default:risk_defaults.max_drawdown_pct }}" class="w-full h-1.5 appearance-none rounded-sm cursor-pointer" style="background: linear-gradient(to right, #48d597 0%, #48d597 10%, #e5a63a 30%, #e5484d 100%)" />
+                            <input type="hidden" name="max_drawdown_pct" id="dd-hidden" value="{{ submitted.max_drawdown_pct|default:risk_defaults.max_drawdown_pct }}" />
+                        </div>
+                        {% if errors.max_drawdown_pct %}<p class="text-[10px] font-mono text-error mt-0.5">{{ errors.max_drawdown_pct }}</p>{% endif %}
+                        <div class="flex justify-between text-[9px] font-mono text-txt-disabled mt-1">
+                            <span>Conservative</span>
+                            <span>Aggressive</span>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="border-ox-border" />
+
+                <!-- Position Sizing -->
+                <div class="space-y-3">
+                    <div class="text-xs font-mono text-txt-secondary flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 text-txt-tertiary" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        Position Sizing
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-mono text-txt-tertiary mb-1">Sizing Method</label>
+                        <select name="risk_sizing_method" class="ox-select w-full text-xs font-mono {% if errors.risk_sizing_method %}border-error{% endif %}">
+                            <option value="fixed_fractional" {% if submitted.risk_sizing_method == "fixed_fractional" or not submitted.risk_sizing_method and risk_defaults.risk_sizing_method == "fixed_fractional" %}selected{% endif %}>Fixed Fractional</option>
+                            <option value="atr_based" {% if submitted.risk_sizing_method == "atr_based" or not submitted.risk_sizing_method and risk_defaults.risk_sizing_method == "atr_based" %}selected{% endif %}>ATR Based</option>
+                        </select>
+                        {% if errors.risk_sizing_method %}<p class="text-[10px] font-mono text-error mt-0.5">{{ errors.risk_sizing_method }}</p>{% endif %}
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="text-[10px] font-mono text-txt-tertiary" data-tooltip="Percentage of equity to risk per trade">Risk per Trade %</label>
+                            <span id="ps-display" class="text-xs font-mono text-txt-raise">{{ submitted.position_size_pct|default:risk_defaults.position_size_pct }}%</span>
+                        </div>
+                        <input type="range" id="ps-range" min="0.5" max="10" step="0.25" value="{{ submitted.position_size_pct|default:risk_defaults.position_size_pct }}" class="w-full h-1.5 appearance-none rounded-sm cursor-pointer" style="background: linear-gradient(to right, #48d597 0%, #48d597 20%, #e5a63a 50%, #e5484d 100%)" />
+                        <input type="hidden" name="position_size_pct" id="ps-hidden" value="{{ submitted.position_size_pct|default:risk_defaults.position_size_pct }}" />
+                        {% if errors.position_size_pct %}<p class="text-[10px] font-mono text-error mt-0.5">{{ errors.position_size_pct }}</p>{% endif %}
+                        <div class="flex justify-between text-[9px] font-mono text-txt-disabled mt-1">
+                            <span>0.5%</span>
+                            <span>10%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Risk Summary -->
+            <div class="ox-card p-4" id="risk-summary">
+                <div class="section-label mb-2">Risk Summary</div>
+                <div class="space-y-1.5 text-xs font-mono">
+                    <div class="flex justify-between">
+                        <span class="text-txt-tertiary">Circuit breaker</span>
+                        <span class="text-txt" id="summary-cb">-$<span id="summary-loss">{{ risk_defaults.daily_loss_limit|floatformat:0 }}</span> daily</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-txt-tertiary">Max drawdown</span>
+                        <span class="text-txt" id="summary-dd-val"><span id="summary-dd">{{ risk_defaults.max_drawdown_pct }}</span>%</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-txt-tertiary">Risk per trade</span>
+                        <span class="text-txt"><span id="summary-ps">{{ risk_defaults.position_size_pct }}</span>%</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-txt-tertiary">Max positions</span>
+                        <span class="text-txt" id="summary-mp">{{ risk_defaults.max_positions }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ RIGHT COLUMN: Strategy Parameters ============ -->
+        <div id="strategy-params-area" class="hidden">
+            <div id="strategy-params-cards" class="space-y-4"></div>
+        </div>
+
+    </div>
+</form>
+
+<!-- Confirmation Modal -->
+<div id="confirm-modal" class="ox-modal-backdrop hidden">
+    <div class="ox-modal max-w-lg">
+        <h3 class="text-sm font-semibold text-txt-raise mb-4">Confirm Paper Trading Session</h3>
+
+        <div class="space-y-3 mb-5">
+            <div class="grid grid-cols-2 gap-3 text-xs font-mono">
+                <div>
+                    <div class="text-txt-tertiary text-[10px] mb-0.5">STRATEGY</div>
+                    <div class="text-txt-raise" id="modal-strategy">-</div>
+                </div>
+                <div>
+                    <div class="text-txt-tertiary text-[10px] mb-0.5">INSTRUMENTS</div>
+                    <div class="text-txt-raise" id="modal-instruments">-</div>
+                </div>
+            </div>
+
+            <hr class="border-ox-border" />
+
+            <div class="text-xs font-mono space-y-1">
+                <div class="text-txt-tertiary text-[10px] mb-1">RISK LIMITS</div>
+                <div class="flex justify-between">
+                    <span class="text-txt-secondary">Daily loss limit</span>
+                    <span class="text-txt-raise" id="modal-loss">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-txt-secondary">Max drawdown</span>
+                    <span class="text-txt-raise" id="modal-dd">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-txt-secondary">Risk per trade</span>
+                    <span class="text-txt-raise" id="modal-ps">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-txt-secondary">Max positions</span>
+                    <span class="text-txt-raise" id="modal-mp">-</span>
+                </div>
+            </div>
+
+            {% if ib_config.trading_mode == "live" %}
+            <div class="ox-alert ox-alert-error text-xs mt-3">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-4 h-4 shrink-0" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <span>Trading mode is LIVE. Real money is at risk.</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="flex justify-end gap-2">
+            <button type="button" class="btn-ghost" onclick="closeModal()">Cancel</button>
+            <button type="button" id="confirm-btn" class="btn-accent" onclick="submitForm()">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5 inline mr-1" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Confirm & Start
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var select = document.getElementById('strategy-select');
+    var paramsArea = document.getElementById('strategy-params-area');
+    var paramsCards = document.getElementById('strategy-params-cards');
+    var strategiesData = {};
+
+    var CATEGORY_LABELS = {
+        indicators: 'Indicators & Entry',
+        exits: 'Exit Rules',
+        timing: 'Session & Timing',
+        advanced: 'Advanced',
+    };
+    var CATEGORY_ORDER = ['indicators', 'exits', 'timing', 'advanced'];
+    var ENUM_OPTIONS = {
+        entry_mode: ['full', 'relaxed', '2of3', 'no_h2', 'sma_macd', 'rsi_level', 'trend_follow'],
+        exit_mode: ['fixed', 'trailing', 'atr'],
+    };
+
+    // Load strategies
+    fetch('{% url "dashboard:api_strategies" %}')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            select.innerHTML = '<option value="" disabled selected>Select a strategy</option>';
+            data.forEach(function(s) {
+                strategiesData[s.name] = s.params;
+                var opt = document.createElement('option');
+                opt.value = s.name;
+                opt.textContent = s.name;
+                {% if submitted.strategy %}
+                if (s.name === '{{ submitted.strategy }}') opt.selected = true;
+                {% endif %}
+                select.appendChild(opt);
+            });
+            {% if submitted.strategy %}
+            select.dispatchEvent(new Event('change'));
+            {% endif %}
+        })
+        .catch(function() {
+            select.innerHTML = '<option value="" disabled selected>Failed to load</option>';
+        });
+
+    // Strategy params generation
+    select.addEventListener('change', function() {
+        var params = strategiesData[this.value] || [];
+        paramsCards.innerHTML = '';
+        if (params.length === 0) { paramsArea.classList.add('hidden'); return; }
+        paramsArea.classList.remove('hidden');
+
+        var groups = {};
+        params.forEach(function(p) {
+            var cat = p.category || 'advanced';
+            if (!groups[cat]) groups[cat] = [];
+            groups[cat].push(p);
+        });
+
+        CATEGORY_ORDER.forEach(function(cat) {
+            var items = groups[cat];
+            if (!items || items.length === 0) return;
+
+            var card = document.createElement('div');
+            card.className = 'ox-card p-5';
+            var heading = document.createElement('div');
+            heading.className = 'section-label mb-3';
+            heading.textContent = CATEGORY_LABELS[cat] || cat;
+            card.appendChild(heading);
+
+            var grid = document.createElement('div');
+            grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3';
+
+            items.forEach(function(p) {
+                var wrapper = document.createElement('div');
+                if (p.type === 'bool') {
+                    wrapper.className = 'flex items-center justify-between py-1';
+                    var label = document.createElement('span');
+                    label.className = 'text-xs font-mono text-txt-secondary';
+                    label.textContent = p.name;
+                    wrapper.appendChild(label);
+                    var hidden = document.createElement('input');
+                    hidden.type = 'hidden'; hidden.name = 'param_' + p.name; hidden.value = 'false';
+                    wrapper.appendChild(hidden);
+                    var toggle = document.createElement('input');
+                    toggle.type = 'checkbox'; toggle.className = 'ox-toggle';
+                    if (p.default === true) { toggle.checked = true; hidden.value = 'true'; }
+                    toggle.addEventListener('change', function() { hidden.value = this.checked ? 'true' : 'false'; });
+                    wrapper.appendChild(toggle);
+                } else if (ENUM_OPTIONS[p.name]) {
+                    var lbl = document.createElement('label');
+                    lbl.className = 'block text-xs font-mono text-txt-secondary mb-1';
+                    lbl.textContent = p.name;
+                    wrapper.appendChild(lbl);
+                    var sel = document.createElement('select');
+                    sel.name = 'param_' + p.name; sel.className = 'ox-select w-full text-xs font-mono';
+                    ENUM_OPTIONS[p.name].forEach(function(opt) {
+                        var o = document.createElement('option');
+                        o.value = opt; o.textContent = opt;
+                        if (opt === p.default) o.selected = true;
+                        sel.appendChild(o);
+                    });
+                    wrapper.appendChild(sel);
+                } else {
+                    var lbl2 = document.createElement('label');
+                    lbl2.className = 'block text-xs font-mono text-txt-secondary mb-1';
+                    lbl2.textContent = p.name;
+                    wrapper.appendChild(lbl2);
+                    var input = document.createElement('input');
+                    input.type = (p.type === 'int' || p.type === 'float') ? 'number' : 'text';
+                    input.name = 'param_' + p.name;
+                    input.value = p.default !== null ? p.default : '';
+                    if (p.type === 'float') input.step = 'any';
+                    input.className = 'ox-input w-full text-xs font-mono';
+                    wrapper.appendChild(input);
+                }
+                grid.appendChild(wrapper);
+            });
+            card.appendChild(grid);
+            paramsCards.appendChild(card);
+        });
+    });
+
+    // ---- Range slider sync ----
+    var ddRange = document.getElementById('dd-range');
+    var ddDisplay = document.getElementById('dd-display');
+    var ddHidden = document.getElementById('dd-hidden');
+    ddRange.addEventListener('input', function() {
+        ddDisplay.textContent = this.value + '%';
+        ddHidden.value = this.value;
+        document.getElementById('summary-dd').textContent = this.value;
+        updateDdColor(parseFloat(this.value));
+    });
+
+    var psRange = document.getElementById('ps-range');
+    var psDisplay = document.getElementById('ps-display');
+    var psHidden = document.getElementById('ps-hidden');
+    psRange.addEventListener('input', function() {
+        psDisplay.textContent = this.value + '%';
+        psHidden.value = this.value;
+        document.getElementById('summary-ps').textContent = this.value;
+    });
+
+    function updateDdColor(v) {
+        if (v <= 5) ddDisplay.className = 'text-xs font-mono text-success';
+        else if (v <= 15) ddDisplay.className = 'text-xs font-mono text-warning';
+        else ddDisplay.className = 'text-xs font-mono text-error';
+    }
+    updateDdColor(parseFloat(ddRange.value));
+
+    // ---- Daily loss limit hint ----
+    var dailyLossInput = document.getElementById('daily-loss-input');
+    var dailyLossHint = document.getElementById('daily-loss-hint');
+    dailyLossInput.addEventListener('input', function() {
+        var v = parseFloat(this.value);
+        document.getElementById('summary-loss').textContent = isNaN(v) ? '?' : Math.round(v);
+        if (v > 5000) {
+            dailyLossHint.textContent = 'High limit — consider if this matches your risk tolerance';
+            dailyLossHint.className = 'text-[10px] font-mono text-warning mt-1';
+        } else {
+            dailyLossHint.className = 'text-[10px] font-mono text-txt-disabled mt-1 hidden';
+        }
+    });
+
+    // ---- Max positions sync ----
+    document.querySelector('[name="max_positions"]').addEventListener('input', function() {
+        document.getElementById('summary-mp').textContent = this.value;
+    });
+
+    // ---- Instrument checkbox highlight ----
+    document.querySelectorAll('.instrument-cb').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            var label = this.closest('label');
+            if (this.checked) {
+                label.classList.add('bg-accent-bg', 'border-accent');
+            } else {
+                label.classList.remove('bg-accent-bg', 'border-accent');
+            }
+        });
+        // Initial state
+        if (cb.checked) cb.closest('label').classList.add('bg-accent-bg', 'border-accent');
+    });
+
+    // ---- Review & confirm flow ----
+    document.getElementById('review-btn').addEventListener('click', function() {
+        // Client-side quick validation
+        var strategy = select.value;
+        var checked = document.querySelectorAll('.instrument-cb:checked');
+        if (!strategy) { select.focus(); return; }
+        if (checked.length === 0) { alert('Select at least one instrument'); return; }
+
+        // Populate modal
+        document.getElementById('modal-strategy').textContent = strategy;
+        var instNames = [];
+        checked.forEach(function(cb) { instNames.push(cb.value); });
+        document.getElementById('modal-instruments').textContent = instNames.join(', ');
+        document.getElementById('modal-loss').textContent = '$' + dailyLossInput.value;
+        document.getElementById('modal-dd').textContent = ddHidden.value + '%';
+        document.getElementById('modal-ps').textContent = psHidden.value + '%';
+        document.getElementById('modal-mp').textContent = document.querySelector('[name="max_positions"]').value;
+
+        document.getElementById('confirm-modal').classList.remove('hidden');
+    });
+});
+
+function closeModal() {
+    document.getElementById('confirm-modal').classList.add('hidden');
+}
+
+function submitForm() {
+    var btn = document.getElementById('confirm-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="ox-spinner"></span> Starting\u2026';
+    document.getElementById('paper-form').submit();
+}
+
+function addExtraBarType() {
+    var container = document.getElementById('extra-bar-container');
+    var div = document.createElement('div');
+    div.className = 'flex gap-2';
+    div.innerHTML = '<input type="text" name="extra_bar_types" placeholder="e.g. 5-MINUTE-LAST-EXTERNAL" class="ox-input flex-1 text-[10px] font-mono" /><button type="button" class="btn-ghost text-xs px-2" onclick="this.parentElement.remove()">x</button>';
+    container.appendChild(div);
+}
+
+// Close modal on backdrop click
+document.getElementById('confirm-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+});
+</script>
+
+<style>
+    /* Range slider thumb */
+    input[type="range"]::-webkit-slider-thumb {
+        appearance: none; width: 14px; height: 14px; border-radius: 50%;
+        background: #e4e8ee; cursor: pointer; border: 2px solid #0e1115;
+        box-shadow: 0 0 0 1px #2a3140;
+    }
+    input[type="range"]::-moz-range-thumb {
+        width: 14px; height: 14px; border-radius: 50%;
+        background: #e4e8ee; cursor: pointer; border: 2px solid #0e1115;
+    }
+    input[type="range"]:focus::-webkit-slider-thumb { box-shadow: 0 0 0 2px #48d597; }
+    /* Error border utility */
+    .border-error { border-color: #e5484d !important; }
+    .border-accent { border-color: #48d597 !important; }
+</style>
+{% endblock %}

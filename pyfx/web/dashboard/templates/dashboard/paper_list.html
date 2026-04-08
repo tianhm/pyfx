@@ -3,6 +3,10 @@
 {% block content %}
 <div class="flex items-center justify-between mb-6">
     <h1 class="text-lg font-semibold text-txt-raise">Paper Trading Sessions</h1>
+    <a href="{% url 'dashboard:paper_new' %}" class="btn-accent inline-flex items-center gap-2 text-xs py-1.5 px-3">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Session
+    </a>
 </div>
 
 {% if running_sessions %}
@@ -78,7 +82,11 @@
 {% else %}
 <div class="ox-card p-8 text-center">
     <p class="text-txt-secondary mb-2">No paper trading sessions yet.</p>
-    <p class="text-txt-tertiary text-sm">Start one with: <code class="text-accent text-xs">pyfx live start -s coban_reborn -i XAU/USD</code></p>
+    <a href="{% url 'dashboard:paper_new' %}" class="btn-accent inline-flex items-center gap-2 text-xs py-1.5 px-3 mt-2">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-3.5 h-3.5" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Start your first session
+    </a>
+    <p class="text-txt-tertiary text-sm mt-2">or via CLI: <code class="text-accent text-xs">pyfx live start -s coban_reborn -i XAU/USD</code></p>
 </div>
 {% endif %}
 {% endblock %}

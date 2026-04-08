@@ -51,6 +51,7 @@ coban_experimental = "pyfx.strategies.coban_experimental:CobanExperimentalStrate
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = ["*/migrations/*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

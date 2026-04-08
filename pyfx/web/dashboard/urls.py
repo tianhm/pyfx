@@ -34,6 +34,8 @@ urlpatterns = [
     path("api/data/running/", views.api_running_downloads, name="api_running_downloads"),
     # Paper trading routes
     path("paper/", views.paper_list, name="paper_list"),
+    path("paper/new/", views.paper_new, name="paper_new"),
+    path("paper/start/", views.paper_start, name="paper_start"),
     path("paper/<int:pk>/", views.paper_detail, name="paper_detail"),
     path("paper/<int:pk>/delete/", views.paper_delete, name="paper_delete"),
     path(
@@ -68,6 +70,9 @@ urlpatterns = [
         views.api_paper_trade_markers,
         name="api_paper_trade_markers",
     ),
+    # API: IB config & instruments
+    path("api/ib-config/", views.api_ib_config, name="api_ib_config"),
+    path("api/instruments/", views.api_supported_instruments, name="api_supported_instruments"),
     # Risk dashboard
     path("risk/", views.risk_dashboard, name="risk_dashboard"),
 ]

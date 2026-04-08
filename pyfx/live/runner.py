@@ -15,10 +15,16 @@ if TYPE_CHECKING:
 def start_live_trading(  # pragma: no cover
     config: LiveTradingConfig,
     settings: PyfxSettings,
+    *,
+    session_id: int | None = None,
 ) -> None:
     """Start a live/paper trading session.
 
     Blocks until the node is stopped (via SIGINT/SIGTERM or ``pyfx live stop``).
+
+    If *session_id* is provided, reuses an existing ``PaperTradingSession``
+    record (e.g. one created by the web UI).  Otherwise a new record is
+    created automatically.
     """
     _setup_django()
     from nautilus_trader.config import ImportableActorConfig
@@ -41,18 +47,21 @@ def start_live_trading(  # pragma: no cover
         msg = f"Unknown strategy '{config.strategy}'. Available: {available}"
         raise ValueError(msg)
 
-    # --- Create DB session ---
-    session = PaperTradingSession.objects.create(
-        status=PaperTradingSession.STATUS_RUNNING,
-        strategy=config.strategy,
-        instrument=",".join(config.instruments),
-        bar_type=config.bar_type,
-        started_at=datetime.now(UTC),
-        account_currency=config.account_currency,
-        account_id=settings.ib_account_id or "",
-        config_json=config.model_dump(mode="json"),
-    )
-    session_id: int = session.pk
+    # --- Create or load DB session ---
+    if session_id is not None:
+        session = PaperTradingSession.objects.get(pk=session_id)
+    else:
+        session = PaperTradingSession.objects.create(
+            status=PaperTradingSession.STATUS_RUNNING,
+            strategy=config.strategy,
+            instrument=",".join(config.instruments),
+            bar_type=config.bar_type,
+            started_at=datetime.now(UTC),
+            account_currency=config.account_currency,
+            account_id=settings.ib_account_id or "",
+            config_json=config.model_dump(mode="json"),
+        )
+    db_session_id: int = session.pk
 
     # --- Build strategy configs (one per instrument) ---
     strategy_configs = []
@@ -83,7 +92,7 @@ def start_live_trading(  # pragma: no cover
         max_drawdown_pct=settings.risk_max_drawdown_pct,
         position_size_pct=settings.risk_position_size_pct,
         sizing_method=settings.risk_sizing_method,
-        session_db_id=session_id,
+        session_db_id=db_session_id,
         starting_equity=settings.default_balance,
         account_currency=settings.account_currency,
     )
@@ -114,7 +123,7 @@ def start_live_trading(  # pragma: no cover
         from pyfx.live.events import save_session_event
 
         save_session_event(
-            session_id=session_id,
+            session_id=db_session_id,
             event_type="info",
             message=f"Session started: {config.strategy} on {', '.join(config.instruments)}",
         )
@@ -130,7 +139,7 @@ def start_live_trading(  # pragma: no cover
         from pyfx.live.events import save_session_event
 
         save_session_event(
-            session_id=session_id,
+            session_id=db_session_id,
             event_type="info",
             message="Session stopped",
         )
