@@ -15,10 +15,10 @@ from pyfx.backtest.runner import (
 )
 from pyfx.core.types import BacktestConfig
 from pyfx.strategies.coban_experimental import (
-    CobanExperimentalConfig,
-    CobanExperimentalStrategy,
     _VALID_ENTRY_MODES,
     _VALID_EXIT_MODES,
+    CobanExperimentalConfig,
+    CobanExperimentalStrategy,
 )
 
 # ---------------------------------------------------------------------------

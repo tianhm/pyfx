@@ -291,6 +291,320 @@ def data_scan() -> None:
     click.echo(f"Registered {registered} new dataset(s), {already_tracked} already tracked.")
 
 
+@main.group()
+def live() -> None:
+    """Paper / live trading with Interactive Brokers."""
+
+
+@live.command("start")
+@click.option("--strategy", "-s", required=True, help="Strategy name")
+@click.option(
+    "--instrument", "-i", multiple=True, default=("XAU/USD",),
+    help="Instrument (repeatable, e.g. -i XAU/USD -i EUR/USD)",
+)
+@click.option("--bar-type", default="1-MINUTE-LAST-EXTERNAL", help="Bar type spec")
+@click.option(
+    "--extra-bar-type", multiple=True,
+    help="Extra bar types for multi-timeframe (repeatable)",
+)
+@click.option("--trade-size", default="100000", help="Trade size")
+@click.option(
+    "--param", "-p", multiple=True,
+    help="Strategy param as key=value (e.g. -p entry_mode=trend_follow)",
+)
+@click.option(
+    "--confirm-live", is_flag=True, default=False,
+    help="Required when connecting to a LIVE (non-paper) IB account",
+)
+def live_start(
+    strategy: str,
+    instrument: tuple[str, ...],
+    bar_type: str,
+    extra_bar_type: tuple[str, ...],
+    trade_size: str,
+    param: tuple[str, ...],
+    confirm_live: bool,
+) -> None:
+    """Start a paper trading session (Ctrl+C to stop)."""
+    from pyfx.core.types import LiveTradingConfig
+
+    # Validate IB config
+    warnings = settings.validate_ib_config()
+    for w in warnings:
+        click.echo(f"  Warning: {w}", err=True)
+
+    if settings.ib_trading_mode == "live" and not confirm_live:
+        click.echo("Error: trading_mode is 'live'. Use --confirm-live to proceed.", err=True)
+        raise SystemExit(1)
+
+    strategy_params = _parse_params(param)
+
+    config = LiveTradingConfig(
+        strategy=strategy,
+        instruments=list(instrument),
+        bar_type=bar_type,
+        extra_bar_types=list(extra_bar_type),
+        strategy_params=strategy_params,
+        trade_size=Decimal(trade_size),
+        account_currency=settings.account_currency,
+    )
+
+    click.echo(f"Starting paper trading: {strategy} on {', '.join(instrument)}")
+    click.echo(f"  IB Gateway: {settings.ib_host}:{settings.ib_port}")
+    click.echo(f"  Account: {settings.ib_account_id or '(not set)'}")
+    click.echo(f"  Mode: {settings.ib_trading_mode}")
+    click.echo("  Press Ctrl+C to stop gracefully.\n")
+
+    from pyfx.live.runner import start_live_trading
+
+    start_live_trading(config, settings)
+
+
+@live.command("stop")
+def live_stop() -> None:
+    """Mark the most recent running session as stopped."""
+    _setup_django()
+    from pyfx.web.dashboard.models import PaperTradingSession
+
+    session = (
+        PaperTradingSession.objects
+        .filter(status=PaperTradingSession.STATUS_RUNNING)
+        .order_by("-started_at")
+        .first()
+    )
+    if session is None:
+        click.echo("No running paper trading sessions found.")
+        return
+
+    from pyfx.web.dashboard.services import stop_paper_session
+
+    stop_paper_session(session.pk)
+    click.echo(f"Session #{session.pk} marked as stopped.")
+
+
+@live.command("status")
+@click.option("--session-id", type=int, default=None, help="Session ID (default: most recent)")
+def live_status(session_id: int | None) -> None:
+    """Show current paper trading session status."""
+    from pyfx.live.runner import get_session_status
+
+    status = get_session_status(session_id)
+    if "error" in status:
+        click.echo(str(status["error"]))
+        return
+
+    click.echo(f"Session #{status['session_id']}  [{status['status']}]")
+    click.echo(f"  Strategy:    {status['strategy']}")
+    click.echo(f"  Instrument:  {status['instrument']}")
+    click.echo(f"  Started:     {status['started_at']}")
+    if status["stopped_at"]:
+        click.echo(f"  Stopped:     {status['stopped_at']}")
+
+    pnl = status.get("total_pnl")
+    if pnl is not None:
+        click.echo(f"\n  Total P&L:   ${pnl:+,.2f}")
+    ret = status.get("total_return_pct")
+    if ret is not None:
+        click.echo(f"  Return:      {ret:+.2f}%")
+    click.echo(f"  Trades:      {status.get('num_trades', 0)}")
+    wr = status.get("win_rate")
+    if wr is not None:
+        click.echo(f"  Win rate:    {wr:.1%}")
+    pf = status.get("profit_factor")
+    if pf is not None:
+        click.echo(f"  PF:          {pf:.2f}")
+    dd = status.get("max_drawdown_pct")
+    if dd is not None:
+        click.echo(f"  Max DD:      {dd:.2f}%")
+
+    open_trades = status.get("open_trades", [])
+    if open_trades:
+        click.echo(f"\n  Open positions ({len(open_trades)}):")
+        for t in open_trades:
+            click.echo(
+                f"    {t['side']} {t['quantity']} {t['instrument']} "
+                f"@ {t['open_price']}",
+            )
+
+    events = status.get("recent_events", [])
+    if events:
+        click.echo("\n  Recent events:")
+        for ev in events[:5]:
+            click.echo(f"    [{ev['event_type']}] {ev['message']}")
+
+
+@live.command("history")
+@click.option("--last", "last_n", type=int, default=None, help="Show last N items")
+@click.option(
+    "--since", type=click.DateTime(), default=None,
+    help="Show items since this date/time",
+)
+def live_history(last_n: int | None, since: datetime | None) -> None:
+    """Review recent trades and events (morning review)."""
+    from pyfx.live.runner import get_session_history
+
+    history = get_session_history(last_n=last_n, since=since)
+    data = history[0] if history else {"events": [], "trades": []}
+
+    trades = data.get("trades", [])
+    if trades:
+        click.echo(f"Trades ({len(trades)}):")
+        for t in trades:
+            pnl_str = (
+                f"${t['realized_pnl']:+.2f}" if t.get("realized_pnl") is not None else "open"
+            )
+            click.echo(
+                f"  {t['opened_at']}  {t['side']:4s} {t['instrument']}  {pnl_str}",
+            )
+    else:
+        click.echo("No trades found.")
+
+    events = data.get("events", [])
+    if events:
+        click.echo(f"\nEvents ({len(events)}):")
+        for ev in events:
+            click.echo(f"  {ev['timestamp']}  [{ev['event_type']}] {ev['message']}")
+    else:
+        click.echo("\nNo events found.")
+
+
+@live.command("compare")
+@click.option("--session", "session_id", type=int, default=None, help="Paper session ID")
+@click.option("--backtest", "backtest_id", type=int, default=None, help="Backtest run ID")
+@click.option(
+    "--format", "fmt", type=click.Choice(["table", "json"]),
+    default="table", help="Output format",
+)
+def live_compare(
+    session_id: int | None,
+    backtest_id: int | None,
+    fmt: str,
+) -> None:
+    """Compare a paper trading session against a backtest."""
+    _setup_django()
+
+    from pyfx.analysis.comparison import compare_sessions
+
+    report = compare_sessions(
+        session_id=session_id,
+        backtest_id=backtest_id,
+    )
+
+    if fmt == "json":
+        import json
+
+        click.echo(json.dumps(report.model_dump(mode="json"), indent=2))
+        return
+
+    # Table format
+    click.echo(
+        f"Paper Session #{report.paper_session_id} vs "
+        f"Backtest #{report.backtest_run_id}",
+    )
+    click.echo("=" * 60)
+    click.echo(f"{'':20s} {'Paper':>12s} {'Backtest':>12s} {'Delta':>12s}")
+    click.echo("-" * 60)
+    click.echo(
+        f"{'Total P&L':20s} "
+        f"${report.total_pnl_paper:>10,.2f} "
+        f"${report.total_pnl_backtest:>10,.2f} "
+        f"${report.pnl_difference:>+10,.2f}",
+    )
+    trades_delta = report.trades_paper - report.trades_backtest
+    click.echo(
+        f"{'Trades':20s} "
+        f"{report.trades_paper:>12d} "
+        f"{report.trades_backtest:>12d} "
+        f"{trades_delta:>+12d}",
+    )
+    click.echo(
+        f"{'Win Rate':20s} "
+        f"{report.win_rate_paper:>11.1%} "
+        f"{report.win_rate_backtest:>11.1%} "
+        f"{report.win_rate_paper - report.win_rate_backtest:>+11.1%}",
+    )
+    if report.profit_factor_paper is not None and report.profit_factor_backtest is not None:
+        click.echo(
+            f"{'Profit Factor':20s} "
+            f"{report.profit_factor_paper:>12.2f} "
+            f"{report.profit_factor_backtest:>12.2f} "
+            f"{report.profit_factor_paper - report.profit_factor_backtest:>+12.2f}",
+        )
+    click.echo(
+        f"\nMatched trades:      {len(report.matched)}",
+    )
+    click.echo(f"Paper-only trades:   {len(report.paper_only)}")
+    click.echo(f"Backtest-only trades: {len(report.backtest_only)}")
+    if report.avg_slippage_delta is not None:
+        click.echo(f"Avg slippage delta:  {report.avg_slippage_delta:.4f}")
+
+    if report.daily_comparison:
+        click.echo(f"\n{'Date':12s} {'Paper':>10s} {'Backtest':>10s} {'Delta':>10s}")
+        click.echo("-" * 46)
+        for d in report.daily_comparison:
+            click.echo(
+                f"{str(d.date):12s} "
+                f"${d.paper_pnl:>9,.2f} "
+                f"${d.backtest_pnl:>9,.2f} "
+                f"${d.delta:>+9,.2f}",
+            )
+
+
+@live.command("config")
+def live_config() -> None:
+    """Show current live trading configuration."""
+    click.echo("Live Trading Configuration")
+    click.echo("=" * 40)
+    click.echo(f"  IB Host:         {settings.ib_host}")
+    click.echo(f"  IB Port:         {settings.ib_port}")
+    click.echo(f"  IB Account:      {settings.ib_account_id or '(not set)'}")
+    click.echo(f"  Trading Mode:    {settings.ib_trading_mode}")
+    click.echo(f"  Read-only API:   {settings.ib_read_only_api}")
+    click.echo(f"  Gateway Image:   {settings.ib_gateway_image}")
+    click.echo(f"  Account Currency: {settings.account_currency}")
+    click.echo()
+    click.echo("Risk Management")
+    click.echo("-" * 40)
+    click.echo(f"  Sizing Method:   {settings.risk_sizing_method}")
+    click.echo(f"  Position Size %: {settings.risk_position_size_pct}%")
+    click.echo(f"  Max Positions:   {settings.risk_max_positions}")
+    click.echo(f"  Max Position Sz: {settings.risk_max_position_size}")
+    click.echo(f"  Daily Loss Limit: ${settings.risk_daily_loss_limit:,.2f}")
+    click.echo(f"  Max Drawdown:    {settings.risk_max_drawdown_pct}%")
+    click.echo(f"  Max Notional:    ${settings.risk_max_notional_per_order:,}")
+
+    warnings = settings.validate_ib_config()
+    if warnings:
+        click.echo("\nWarnings:")
+        for w in warnings:
+            click.echo(f"  - {w}")
+
+
+@live.command("test-connection")
+@click.option("--instrument", "-i", default="XAU/USD", help="Instrument to test")
+@click.option("--timeout", default=30, type=int, help="Timeout in seconds")
+def live_test_connection(instrument: str, timeout: int) -> None:
+    """Test IB Gateway connection without starting a session."""
+    from pyfx.live.connection import validate_ib_config
+
+    click.echo("IB Connection Test")
+    click.echo("=" * 40)
+
+    # Quick config validation first
+    result = validate_ib_config(settings)
+    for d in result.diagnostics:
+        click.echo(f"  {d}")
+    for w in result.warnings:
+        click.echo(f"  Warning: {w}", err=True)
+
+    if not result.success:
+        click.echo(f"\nConfig validation failed: {result.error}")
+        raise SystemExit(1)
+
+    click.echo("\nConfig OK. To test live connection, ensure Docker is running")
+    click.echo(f"and IB Gateway will start on {settings.ib_host}:{settings.ib_port}")
+
+
 def _parse_params(params: tuple[str, ...]) -> dict[str, bool | int | float | str]:
     """Parse ``key=value`` CLI params, coercing to bool, int, float, or str."""
     from pyfx.core.types import parse_strategy_params

@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 from pyfx.backtest.runner import run_backtest
-from pyfx.data.resample import resample_bars
 from pyfx.core.types import BacktestConfig
+from pyfx.data.resample import resample_bars
 from pyfx.strategies.coban_reborn import (
     _ZERO_TS,
     CobanRebornConfig,

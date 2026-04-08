@@ -208,6 +208,15 @@ wheels = [
 ]
 
 [[package]]
+name = "defusedxml"
+version = "0.7.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/d5/c66da9b79e5bdb124974bfe172b4daf3c984ebd9c2a06e2b8a4dc7331c72/defusedxml-0.7.1.tar.gz", hash = "sha256:1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69", size = 75520, upload-time = "2021-03-08T10:59:26.269Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/6c/aa3f2f849e01cb6a001cd8554a88d4c77c5c1a31c95bdf1cf9301e6d9ef4/defusedxml-0.7.1-py2.py3-none-any.whl", hash = "sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61", size = 25604, upload-time = "2021-03-08T10:59:24.45Z" },
+]
+
+[[package]]
 name = "django"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -454,6 +463,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nautilus-ibapi"
+version = "10.43.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/a7/cd2c00d99a2500a9fde23db64bbe5588e396cd13f933dd9973a6edb27fd0/nautilus_ibapi-10.43.2.tar.gz", hash = "sha256:e7d9b0c14c81f44f88815a27ac543ac93d22ead08d14cd4d3d336b31ec3f1753", size = 154445, upload-time = "2026-02-11T21:38:40.435Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/03/b810d53eea98bbc29c0cd6ba06ffe942bdbe22e0c09582df4a6741b119c3/nautilus_ibapi-10.43.2-py3-none-any.whl", hash = "sha256:2afa9f42bc9f662dea0938829a1261c04edc42ecabbee9b06a27d5494b1113dc", size = 325562, upload-time = "2026-02-11T21:38:38.763Z" },
+]
+
+[[package]]
 name = "nautilus-trader"
 version = "1.224.0"
 source = { registry = "https://pypi.org/simple" }
@@ -483,6 +501,13 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/e5/14a713df4497fd0626c87b2e4a2e22592bc7d19a5272a415e0b793f01c21/nautilus_trader-1.224.0-cp314-cp314-manylinux_2_35_aarch64.whl", hash = "sha256:5710249026220e7a7566da8f6ab4a229526a0d80614f46d42849d605a7a10529", size = 112855207, upload-time = "2026-03-03T07:52:26.259Z" },
     { url = "https://files.pythonhosted.org/packages/78/6d/3f5ded6b852e673307cb3bc46f5006bded5a7e5e5e6147a6935e2016e9db/nautilus_trader-1.224.0-cp314-cp314-manylinux_2_35_x86_64.whl", hash = "sha256:1e68e7440a84349b291dcee7bb03b659a333cfcdb1c04a1990d19fa9bdd9906c", size = 121230245, upload-time = "2026-03-03T07:52:36.067Z" },
     { url = "https://files.pythonhosted.org/packages/4b/7b/6f0d595c10a4499950149ed0132cf74a79c41f7f2bea543516f9ce06548c/nautilus_trader-1.224.0-cp314-cp314-win_amd64.whl", hash = "sha256:6e5080f80b8028683561b751b7c03335c4c8e8f97502786d167c93a5c5385c65", size = 52380063, upload-time = "2026-03-03T07:51:38.715Z" },
+]
+
+[package.optional-dependencies]
+ib = [
+    { name = "defusedxml", marker = "python_full_version < '3.14'" },
+    { name = "nautilus-ibapi", marker = "python_full_version < '3.14'" },
+    { name = "protobuf", marker = "python_full_version < '3.14'" },
 ]
 
 [[package]]
@@ -619,6 +644,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/71/eb/fb2cc91b0214c0c6028cb4b29d309142687c740d1daf7c36c771a0aa5ac1/portion-2.6.1.tar.gz", hash = "sha256:44b1f7d57e052993c4157e519dc447e57b87a4e5e00a77c1c50e7044104e53c6", size = 61345, upload-time = "2025-05-25T13:50:46.683Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/da/9e/21c4088d1d433cfbf0578f138a6df59527dbd9e9d67355ee31b17e6dc774/portion-2.6.1-py3-none-any.whl", hash = "sha256:764d0be5479842f011feccc6f4bf80454dd944ef16309fceb2b5ae229cf05df3", size = 27389, upload-time = "2025-05-25T13:50:45.295Z" },
+]
+
+[[package]]
+name = "protobuf"
+version = "5.29.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/29/d09e70352e4e88c9c7a198d5645d7277811448d76c23b00345670f7c8a38/protobuf-5.29.5.tar.gz", hash = "sha256:bc1463bafd4b0929216c35f437a8e28731a2b7fe3d98bb77a600efced5a15c84", size = 425226, upload-time = "2025-05-28T23:51:59.82Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/11/6e40e9fc5bba02988a214c07cf324595789ca7820160bfd1f8be96e48539/protobuf-5.29.5-cp310-abi3-win32.whl", hash = "sha256:3f1c6468a2cfd102ff4703976138844f78ebd1fb45f49011afc5139e9e283079", size = 422963, upload-time = "2025-05-28T23:51:41.204Z" },
+    { url = "https://files.pythonhosted.org/packages/81/7f/73cefb093e1a2a7c3ffd839e6f9fcafb7a427d300c7f8aef9c64405d8ac6/protobuf-5.29.5-cp310-abi3-win_amd64.whl", hash = "sha256:3f76e3a3675b4a4d867b52e4a5f5b78a2ef9565549d4037e06cf7b0942b1d3fc", size = 434818, upload-time = "2025-05-28T23:51:44.297Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/73/10e1661c21f139f2c6ad9b23040ff36fee624310dc28fba20d33fdae124c/protobuf-5.29.5-cp38-abi3-macosx_10_9_universal2.whl", hash = "sha256:e38c5add5a311f2a6eb0340716ef9b039c1dfa428b28f25a7838ac329204a671", size = 418091, upload-time = "2025-05-28T23:51:45.907Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/04/98f6f8cf5b07ab1294c13f34b4e69b3722bb609c5b701d6c169828f9f8aa/protobuf-5.29.5-cp38-abi3-manylinux2014_aarch64.whl", hash = "sha256:fa18533a299d7ab6c55a238bf8629311439995f2e7eca5caaff08663606e9015", size = 319824, upload-time = "2025-05-28T23:51:47.545Z" },
+    { url = "https://files.pythonhosted.org/packages/85/e4/07c80521879c2d15f321465ac24c70efe2381378c00bf5e56a0f4fbac8cd/protobuf-5.29.5-cp38-abi3-manylinux2014_x86_64.whl", hash = "sha256:63848923da3325e1bf7e9003d680ce6e14b07e55d0473253a690c3a8b8fd6e61", size = 319942, upload-time = "2025-05-28T23:51:49.11Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/cc/7e77861000a0691aeea8f4566e5d3aa716f2b1dece4a24439437e41d3d25/protobuf-5.29.5-py3-none-any.whl", hash = "sha256:6cf42630262c59b2d8de33954443d94b746c952b01434fc58a417fdbd2e84bd5", size = 172823, upload-time = "2025-05-28T23:51:58.157Z" },
 ]
 
 [[package]]
@@ -784,6 +823,7 @@ all = [
     { name = "djangorestframework" },
     { name = "dukascopy-python" },
     { name = "mypy" },
+    { name = "nautilus-trader", extra = ["ib"] },
     { name = "pandas-stubs" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -803,6 +843,9 @@ dev = [
     { name = "pytest-django" },
     { name = "ruff" },
 ]
+ib = [
+    { name = "nautilus-trader", extra = ["ib"] },
+]
 web = [
     { name = "django" },
     { name = "djangorestframework" },
@@ -818,17 +861,18 @@ requires-dist = [
     { name = "dukascopy-python", marker = "extra == 'data'", specifier = ">=4.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "nautilus-trader", specifier = ">=1.224.0" },
+    { name = "nautilus-trader", extras = ["ib"], marker = "extra == 'ib'", specifier = ">=1.224.0" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pandas-stubs", marker = "extra == 'dev'", specifier = ">=3.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
-    { name = "pyfx", extras = ["web", "dev", "data"], marker = "extra == 'all'" },
+    { name = "pyfx", extras = ["web", "dev", "data", "ib"], marker = "extra == 'all'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "pytest-django", marker = "extra == 'dev'", specifier = ">=4.5" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
 ]
-provides-extras = ["web", "data", "dev", "all"]
+provides-extras = ["web", "ib", "data", "dev", "all"]
 
 [[package]]
 name = "pygments"

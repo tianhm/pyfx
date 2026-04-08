@@ -9,10 +9,18 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from django.test import Client, TestCase
 
-from pyfx.web.dashboard.models import BacktestRun, Dataset, EquitySnapshot, Trade
+from pyfx.web.dashboard.models import (
+    BacktestRun,
+    Dataset,
+    EquitySnapshot,
+    PaperTrade,
+    PaperTradingSession,
+    RiskSnapshot,
+    SessionEvent,
+    Trade,
+)
 
 
 def _create_run(
@@ -1992,3 +2000,653 @@ class CliWebCommandTests(TestCase):
 
         assert result.exit_code == 0
         mock_exec.assert_called_once_with(["pyfx"])
+
+
+# ---------------------------------------------------------------------------
+# Paper Trading View Helpers
+# ---------------------------------------------------------------------------
+
+
+def _create_session(**kwargs: object) -> PaperTradingSession:
+    defaults: dict[str, object] = {
+        "status": PaperTradingSession.STATUS_STOPPED,
+        "strategy": "coban_reborn",
+        "instrument": "XAU/USD",
+        "bar_type": "1-MINUTE-LAST-EXTERNAL",
+        "started_at": datetime(2024, 1, 1, tzinfo=UTC),
+        "account_currency": "USD",
+        "account_id": "DU1234567",
+    }
+    defaults.update(kwargs)
+    return PaperTradingSession.objects.create(**defaults)
+
+
+def _create_paper_trade(
+    session: PaperTradingSession,
+    pnl: float | None = 50.0,
+    closed: bool = True,
+) -> PaperTrade:
+    trade_kwargs: dict[str, object] = {
+        "session": session,
+        "instrument": "XAU/USD",
+        "side": "BUY",
+        "quantity": 100.0,
+        "open_price": 2050.50,
+        "opened_at": datetime(2024, 1, 2, tzinfo=UTC),
+        "fill_latency_ms": 15.0,
+        "slippage_ticks": 0.3,
+    }
+    if closed:
+        trade_kwargs.update({
+            "close_price": 2055.50,
+            "realized_pnl": pnl,
+            "realized_return_pct": 0.05 if pnl and pnl > 0 else -0.05,
+            "closed_at": datetime(2024, 1, 2, 1, 0, tzinfo=UTC),
+            "duration_seconds": 3600.0,
+        })
+    return PaperTrade.objects.create(**trade_kwargs)
+
+
+def _create_session_event(
+    session: PaperTradingSession,
+    event_type: str = "info",
+    message: str = "test event",
+) -> SessionEvent:
+    return SessionEvent.objects.create(
+        session=session,
+        timestamp=datetime(2024, 1, 2, tzinfo=UTC),
+        event_type=event_type,
+        message=message,
+    )
+
+
+def _create_risk_snapshot(
+    session: PaperTradingSession,
+    equity: float = 100000.0,
+) -> RiskSnapshot:
+    return RiskSnapshot.objects.create(
+        session=session,
+        timestamp=datetime(2024, 1, 2, tzinfo=UTC),
+        equity=equity,
+        daily_pnl=0.0,
+        open_positions=0,
+        drawdown_pct=0.0,
+        utilization_pct=0.0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Paper Trading View Tests
+# ---------------------------------------------------------------------------
+
+
+class PaperListViewTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+
+    def test_paper_list_empty(self) -> None:
+        resp = self.client.get("/paper/")
+        assert resp.status_code == 200
+        assert resp.context["active_nav"] == "paper"
+
+    def test_paper_list_with_sessions(self) -> None:
+        _create_session(strategy="coban_reborn")
+        _create_session(strategy="sample_sma", instrument="EUR/USD")
+        resp = self.client.get("/paper/")
+        assert resp.status_code == 200
+        assert len(resp.context["sessions"]) == 2
+
+    def test_paper_list_running_sessions(self) -> None:
+        _create_session(status=PaperTradingSession.STATUS_RUNNING)
+        _create_session(status=PaperTradingSession.STATUS_STOPPED)
+        resp = self.client.get("/paper/")
+        assert len(resp.context["running_sessions"]) == 1
+
+
+class PaperDetailViewTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+        _create_paper_trade(self.session, pnl=100.0, closed=True)
+        _create_paper_trade(self.session, pnl=None, closed=False)
+        _create_session_event(self.session)
+
+    def test_paper_detail_200(self) -> None:
+        resp = self.client.get(f"/paper/{self.session.pk}/")
+        assert resp.status_code == 200
+        assert resp.context["active_nav"] == "paper"
+
+    def test_paper_detail_context(self) -> None:
+        resp = self.client.get(f"/paper/{self.session.pk}/")
+        assert resp.context["session"] == self.session
+        assert len(resp.context["trades"]) == 2
+        assert len(resp.context["open_trades"]) == 1
+        assert len(resp.context["closed_trades"]) == 1
+        assert len(resp.context["events"]) == 1
+
+    def test_paper_detail_matching_backtests(self) -> None:
+        bt = _create_run(
+            strategy="coban_reborn",
+            instrument="XAU/USD",
+            status=BacktestRun.STATUS_COMPLETED,
+        )
+        resp = self.client.get(f"/paper/{self.session.pk}/")
+        matching = resp.context["matching_backtests"]
+        assert len(matching) == 1
+        assert matching[0].pk == bt.pk
+
+    def test_paper_detail_404(self) -> None:
+        resp = self.client.get("/paper/99999/")
+        assert resp.status_code == 404
+
+
+class PaperDeleteViewTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+
+    def test_delete_post(self) -> None:
+        session = _create_session()
+        resp = self.client.post(f"/paper/{session.pk}/delete/")
+        assert resp.status_code == 302
+        assert not PaperTradingSession.objects.filter(pk=session.pk).exists()
+
+    def test_delete_get_returns_405(self) -> None:
+        session = _create_session()
+        resp = self.client.get(f"/paper/{session.pk}/delete/")
+        assert resp.status_code == 405
+
+    def test_delete_404(self) -> None:
+        resp = self.client.post("/paper/99999/delete/")
+        assert resp.status_code == 404
+
+    def test_delete_redirects_to_list(self) -> None:
+        session = _create_session()
+        resp = self.client.post(f"/paper/{session.pk}/delete/")
+        assert resp.status_code == 302
+        assert resp.url == "/paper/"  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# Comparison View Tests
+# ---------------------------------------------------------------------------
+
+
+class ComparisonViewTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+        self.bt_run = _create_run(
+            strategy="coban_reborn",
+            instrument="XAU/USD",
+        )
+
+    @patch("pyfx.analysis.comparison.compare_sessions")
+    def test_comparison_view_200(self, mock_compare: MagicMock) -> None:
+        from pyfx.analysis.comparison import ComparisonReport
+
+        mock_compare.return_value = ComparisonReport(
+            paper_session_id=self.session.pk,
+            backtest_run_id=self.bt_run.pk,
+            total_pnl_paper=500.0,
+            total_pnl_backtest=600.0,
+            pnl_difference=-100.0,
+            trades_paper=10,
+            trades_backtest=12,
+            win_rate_paper=0.6,
+            win_rate_backtest=0.65,
+        )
+        resp = self.client.get(
+            f"/paper/{self.session.pk}/compare/{self.bt_run.pk}/",
+        )
+        assert resp.status_code == 200
+        assert resp.context["active_nav"] == "paper"
+        assert resp.context["session"] == self.session
+        assert resp.context["bt_run"] == self.bt_run
+        assert resp.context["report"].total_pnl_paper == 500.0
+        mock_compare.assert_called_once_with(
+            session_id=self.session.pk,
+            backtest_id=self.bt_run.pk,
+        )
+
+    def test_comparison_view_404_session(self) -> None:
+        resp = self.client.get(
+            f"/paper/99999/compare/{self.bt_run.pk}/",
+        )
+        assert resp.status_code == 404
+
+    def test_comparison_view_404_backtest(self) -> None:
+        resp = self.client.get(
+            f"/paper/{self.session.pk}/compare/99999/",
+        )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Risk Dashboard View Tests
+# ---------------------------------------------------------------------------
+
+
+class RiskDashboardViewTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+
+    def test_risk_dashboard_no_sessions(self) -> None:
+        resp = self.client.get("/risk/")
+        assert resp.status_code == 200
+        assert resp.context["active_nav"] == "risk"
+        assert resp.context["session"] is None
+        assert resp.context["snapshots"] == []
+        assert resp.context["risk_events"] == []
+        assert resp.context["open_trades"] == []
+
+    def test_risk_dashboard_with_running_session(self) -> None:
+        session = _create_session(status=PaperTradingSession.STATUS_RUNNING)
+        _create_risk_snapshot(session, equity=101000.0)
+        _create_paper_trade(session, closed=False)
+        _create_session_event(session, event_type="risk_warning", message="High DD")
+
+        resp = self.client.get("/risk/")
+        assert resp.status_code == 200
+        assert resp.context["session"] == session
+        assert len(resp.context["snapshots"]) == 1
+        assert len(resp.context["risk_events"]) == 1
+        assert len(resp.context["open_trades"]) == 1
+
+    def test_risk_dashboard_prefers_running(self) -> None:
+        _create_session(
+            status=PaperTradingSession.STATUS_STOPPED,
+            started_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        running = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            started_at=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        resp = self.client.get("/risk/")
+        assert resp.context["session"] == running
+
+    def test_risk_dashboard_falls_back_to_latest(self) -> None:
+        _create_session(
+            status=PaperTradingSession.STATUS_STOPPED,
+            started_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        new = _create_session(
+            status=PaperTradingSession.STATUS_STOPPED,
+            started_at=datetime(2024, 6, 1, tzinfo=UTC),
+        )
+        resp = self.client.get("/risk/")
+        assert resp.context["session"] == new
+
+    def test_risk_dashboard_filters_risk_events_only(self) -> None:
+        session = _create_session(status=PaperTradingSession.STATUS_RUNNING)
+        _create_session_event(session, event_type="risk_warning", message="warn1")
+        _create_session_event(session, event_type="circuit_breaker", message="cb1")
+        _create_session_event(session, event_type="info", message="should not appear")
+        _create_session_event(session, event_type="position_limit", message="pos1")
+
+        resp = self.client.get("/risk/")
+        events = resp.context["risk_events"]
+        assert len(events) == 3
+        event_types = {e.event_type for e in events}
+        assert "info" not in event_types
+
+
+# ---------------------------------------------------------------------------
+# Paper Trading API Tests
+# ---------------------------------------------------------------------------
+
+
+class ApiPaperTradesTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+
+    def test_paper_trades_empty(self) -> None:
+        resp = self.client.get(f"/api/paper/{self.session.pk}/trades/")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_paper_trades_with_data(self) -> None:
+        _create_paper_trade(self.session, pnl=100.0, closed=True)
+        _create_paper_trade(self.session, pnl=None, closed=False)
+        resp = self.client.get(f"/api/paper/{self.session.pk}/trades/")
+        data = resp.json()
+        assert len(data) == 2
+
+        # Check closed trade
+        closed = [t for t in data if not t["is_open"]][0]
+        assert closed["instrument"] == "XAU/USD"
+        assert closed["side"] == "BUY"
+        assert closed["realized_pnl"] == 100.0
+        assert closed["closed_at"] is not None
+        assert closed["fill_latency_ms"] == 15.0
+        assert closed["slippage_ticks"] == 0.3
+
+        # Check open trade
+        open_t = [t for t in data if t["is_open"]][0]
+        assert open_t["closed_at"] is None
+        assert open_t["is_open"] is True
+
+    def test_paper_trades_404(self) -> None:
+        resp = self.client.get("/api/paper/99999/trades/")
+        assert resp.status_code == 404
+
+
+class ApiPaperEventsTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+
+    def test_paper_events_empty(self) -> None:
+        resp = self.client.get(f"/api/paper/{self.session.pk}/events/")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_paper_events_with_data(self) -> None:
+        _create_session_event(self.session, event_type="info", message="started")
+        _create_session_event(
+            self.session, event_type="risk_warning", message="high DD",
+        )
+        resp = self.client.get(f"/api/paper/{self.session.pk}/events/")
+        data = resp.json()
+        assert len(data) == 2
+        assert data[0]["event_type"] in ("info", "risk_warning")
+        assert "timestamp" in data[0]
+        assert "message" in data[0]
+
+    def test_paper_events_404(self) -> None:
+        resp = self.client.get("/api/paper/99999/events/")
+        assert resp.status_code == 404
+
+
+class ApiPaperRiskSnapshotsTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+
+    def test_risk_snapshots_empty(self) -> None:
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/risk-snapshots/",
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_risk_snapshots_with_data(self) -> None:
+        _create_risk_snapshot(self.session, equity=100000.0)
+        _create_risk_snapshot(self.session, equity=101000.0)
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/risk-snapshots/",
+        )
+        data = resp.json()
+        assert len(data) == 2
+        assert "timestamp" in data[0]
+        assert "equity" in data[0]
+        assert "daily_pnl" in data[0]
+        assert "open_positions" in data[0]
+        assert "drawdown_pct" in data[0]
+        assert "utilization_pct" in data[0]
+
+    def test_risk_snapshots_404(self) -> None:
+        resp = self.client.get("/api/paper/99999/risk-snapshots/")
+        assert resp.status_code == 404
+
+
+class ApiComparisonDataTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+        self.bt_run = _create_run(
+            strategy="coban_reborn",
+            instrument="XAU/USD",
+        )
+
+    @patch("pyfx.analysis.comparison.compare_sessions")
+    def test_comparison_data_json(self, mock_compare: MagicMock) -> None:
+        from pyfx.analysis.comparison import ComparisonReport
+
+        report = ComparisonReport(
+            paper_session_id=self.session.pk,
+            backtest_run_id=self.bt_run.pk,
+            total_pnl_paper=500.0,
+            total_pnl_backtest=600.0,
+            pnl_difference=-100.0,
+            trades_paper=10,
+            trades_backtest=12,
+            win_rate_paper=0.6,
+            win_rate_backtest=0.65,
+        )
+        mock_compare.return_value = report
+
+        resp = self.client.get(
+            f"/api/compare/{self.session.pk}/{self.bt_run.pk}/",
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["paper_session_id"] == self.session.pk
+        assert data["backtest_run_id"] == self.bt_run.pk
+        assert data["total_pnl_paper"] == 500.0
+        assert data["pnl_difference"] == -100.0
+        assert data["trades_paper"] == 10
+        assert data["win_rate_paper"] == 0.6
+        mock_compare.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Paper Equity Curve API Tests
+# ---------------------------------------------------------------------------
+
+
+class ApiPaperEquityCurveTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+
+    def test_equity_curve_empty(self) -> None:
+        resp = self.client.get(f"/api/paper/{self.session.pk}/equity/")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_equity_curve_with_snapshots(self) -> None:
+        RiskSnapshot.objects.create(
+            session=self.session,
+            timestamp=datetime(2024, 1, 2, 10, 0, tzinfo=UTC),
+            equity=100000.0,
+            daily_pnl=0.0,
+            open_positions=0,
+            drawdown_pct=0.0,
+            utilization_pct=0.0,
+        )
+        RiskSnapshot.objects.create(
+            session=self.session,
+            timestamp=datetime(2024, 1, 2, 11, 0, tzinfo=UTC),
+            equity=100500.0,
+            daily_pnl=500.0,
+            open_positions=1,
+            drawdown_pct=0.0,
+            utilization_pct=25.0,
+        )
+
+        resp = self.client.get(f"/api/paper/{self.session.pk}/equity/")
+        data = resp.json()
+        assert len(data) == 2
+        assert "time" in data[0]
+        assert "value" in data[0]
+        assert data[0]["value"] == 100000.0
+        assert data[1]["value"] == 100500.0
+
+    def test_equity_curve_404(self) -> None:
+        resp = self.client.get("/api/paper/99999/equity/")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Paper Cumulative P&L API Tests
+# ---------------------------------------------------------------------------
+
+
+class ApiPaperCumulativePnlTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+
+    def test_cumulative_pnl_empty(self) -> None:
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/cumulative-pnl/",
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_cumulative_pnl_with_closed_trades(self) -> None:
+        PaperTrade.objects.create(
+            session=self.session,
+            instrument="XAU/USD",
+            side="BUY",
+            quantity=100.0,
+            open_price=2050.0,
+            close_price=2060.0,
+            realized_pnl=100.0,
+            opened_at=datetime(2024, 1, 2, 10, 0, tzinfo=UTC),
+            closed_at=datetime(2024, 1, 2, 11, 0, tzinfo=UTC),
+        )
+        PaperTrade.objects.create(
+            session=self.session,
+            instrument="XAU/USD",
+            side="SELL",
+            quantity=100.0,
+            open_price=2060.0,
+            close_price=2055.0,
+            realized_pnl=50.0,
+            opened_at=datetime(2024, 1, 2, 12, 0, tzinfo=UTC),
+            closed_at=datetime(2024, 1, 2, 13, 0, tzinfo=UTC),
+        )
+
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/cumulative-pnl/",
+        )
+        data = resp.json()
+        assert len(data) == 2
+        assert data[0]["value"] == 100.0
+        assert data[1]["value"] == 150.0
+        assert "time" in data[0]
+
+    def test_cumulative_pnl_excludes_open_trades(self) -> None:
+        # Open trade (no closed_at)
+        PaperTrade.objects.create(
+            session=self.session,
+            instrument="XAU/USD",
+            side="BUY",
+            quantity=100.0,
+            open_price=2050.0,
+            opened_at=datetime(2024, 1, 2, 10, 0, tzinfo=UTC),
+        )
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/cumulative-pnl/",
+        )
+        assert resp.json() == []
+
+    def test_cumulative_pnl_404(self) -> None:
+        resp = self.client.get("/api/paper/99999/cumulative-pnl/")
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Paper Trade Markers API Tests
+# ---------------------------------------------------------------------------
+
+
+class ApiPaperTradeMarkersTests(TestCase):
+    def setUp(self) -> None:
+        self.client = Client()
+        self.session = _create_session()
+
+    def test_trade_markers_empty(self) -> None:
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/trade-markers/",
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_trade_markers_closed_trade(self) -> None:
+        PaperTrade.objects.create(
+            session=self.session,
+            instrument="XAU/USD",
+            side="BUY",
+            quantity=100.0,
+            open_price=2050.0,
+            close_price=2060.0,
+            realized_pnl=100.0,
+            opened_at=datetime(2024, 1, 2, 10, 0, tzinfo=UTC),
+            closed_at=datetime(2024, 1, 2, 11, 0, tzinfo=UTC),
+        )
+
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/trade-markers/",
+        )
+        markers = resp.json()
+        assert len(markers) == 2
+
+        entry = markers[0]
+        assert entry["type"] == "entry"
+        assert entry["side"] == "BUY"
+        assert entry["price"] == 2050.0
+        assert entry["pnl"] is None
+        assert entry["tradeIdx"] == 0
+
+        exit_m = markers[1]
+        assert exit_m["type"] == "exit"
+        assert exit_m["side"] == "BUY"
+        assert exit_m["price"] == 2060.0
+        assert exit_m["pnl"] == 100.0
+        assert exit_m["tradeIdx"] == 0
+
+    def test_trade_markers_open_trade(self) -> None:
+        PaperTrade.objects.create(
+            session=self.session,
+            instrument="XAU/USD",
+            side="SELL",
+            quantity=50.0,
+            open_price=2070.0,
+            opened_at=datetime(2024, 1, 2, 14, 0, tzinfo=UTC),
+        )
+
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/trade-markers/",
+        )
+        markers = resp.json()
+        # Open trade: entry marker only, no exit
+        assert len(markers) == 1
+        assert markers[0]["type"] == "entry"
+        assert markers[0]["side"] == "SELL"
+        assert markers[0]["price"] == 2070.0
+
+    def test_trade_markers_mixed(self) -> None:
+        """Mix of open and closed trades produces correct marker count."""
+        PaperTrade.objects.create(
+            session=self.session,
+            instrument="XAU/USD",
+            side="BUY",
+            quantity=100.0,
+            open_price=2050.0,
+            close_price=2060.0,
+            realized_pnl=100.0,
+            opened_at=datetime(2024, 1, 2, 10, 0, tzinfo=UTC),
+            closed_at=datetime(2024, 1, 2, 11, 0, tzinfo=UTC),
+        )
+        PaperTrade.objects.create(
+            session=self.session,
+            instrument="XAU/USD",
+            side="SELL",
+            quantity=50.0,
+            open_price=2070.0,
+            opened_at=datetime(2024, 1, 2, 14, 0, tzinfo=UTC),
+        )
+
+        resp = self.client.get(
+            f"/api/paper/{self.session.pk}/trade-markers/",
+        )
+        markers = resp.json()
+        # 1 closed trade (entry + exit) + 1 open trade (entry only) = 3
+        assert len(markers) == 3
+
+    def test_trade_markers_404(self) -> None:
+        resp = self.client.get("/api/paper/99999/trade-markers/")
+        assert resp.status_code == 404

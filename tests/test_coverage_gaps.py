@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 
 import numpy as np
@@ -11,7 +11,6 @@ import pytest
 
 from pyfx.backtest.runner import _to_utc_datetime, run_backtest
 from pyfx.core.types import BacktestConfig
-
 
 # ---------------------------------------------------------------------------
 # runner.py: pd.Timestamp branches and string fallback
@@ -317,7 +316,7 @@ class TestCobanFullEntryMode:
 class TestCobanExitMethodsDirect:
     """Test exit methods directly by setting internal state on the strategy."""
 
-    def _make_strategy(self) -> "CobanRebornStrategy":
+    def _make_strategy(self) -> CobanRebornStrategy:
         """Create a minimal strategy-like object with exit method access."""
         from unittest.mock import MagicMock
 
@@ -353,7 +352,6 @@ class TestCobanExitMethodsDirect:
     # -- Fixed exit tests --
 
     def test_fixed_long_tp(self) -> None:
-        from pyfx.strategies.coban_reborn import CobanRebornConfig
 
         s = self._make_strategy()
         s._trade_direction = 1
@@ -533,7 +531,7 @@ class TestCobanExitMethodsDirect:
 class TestCobanEntryFullDirect:
     """Direct unit test for _entry_full by manipulating internal state."""
 
-    def _make_strategy(self) -> "CobanRebornStrategy":
+    def _make_strategy(self) -> CobanRebornStrategy:
         from unittest.mock import MagicMock
 
         from pyfx.strategies.coban_reborn import CobanRebornConfig, CobanRebornStrategy
@@ -718,7 +716,10 @@ class TestCobanExperimentalExitsDirect:
     def _make_exp_strategy(self) -> object:
         from unittest.mock import MagicMock
 
-        from pyfx.strategies.coban_experimental import CobanExperimentalConfig, CobanExperimentalStrategy
+        from pyfx.strategies.coban_experimental import (
+            CobanExperimentalConfig,
+            CobanExperimentalStrategy,
+        )
 
         config = CobanExperimentalConfig(
             instrument_id=MagicMock(),
@@ -843,7 +844,6 @@ class TestCobanExperimentalEntrysDirect:
 
         from pyfx.strategies.coban_experimental import (
             CobanExperimentalConfig,
-            CobanExperimentalStrategy,
         )
 
         config = CobanExperimentalConfig(
@@ -946,7 +946,6 @@ class TestCobanExperimentalEntrysDirect:
 
         from pyfx.strategies.coban_experimental import (
             CobanExperimentalConfig,
-            CobanExperimentalStrategy,
         )
 
         config = CobanExperimentalConfig(
