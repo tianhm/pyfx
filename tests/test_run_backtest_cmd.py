@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -12,7 +11,7 @@ import pandas as pd
 import pytest
 from django.core.management import call_command
 
-from pyfx.core.types import BacktestResult, BacktestConfig, EquityPoint, TradeRecord
+from pyfx.core.types import BacktestConfig, BacktestResult, EquityPoint, TradeRecord
 
 
 def _make_data(tmp_path: Path) -> Path:

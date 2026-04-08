@@ -12,7 +12,16 @@ from django.db.models import Avg, Count, Max, Min
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .models import BacktestRun, Dataset, EquitySnapshot, Trade
+from .models import (
+    BacktestRun,
+    Dataset,
+    EquitySnapshot,
+    PaperTrade,
+    PaperTradingSession,
+    RiskSnapshot,
+    SessionEvent,
+    Trade,
+)
 
 _DJANGO_SETTINGS_MODULE = "pyfx.web.pyfx_web.settings"
 
@@ -739,3 +748,227 @@ def api_running_downloads(request: HttpRequest) -> JsonResponse:
         for ds in running
     ]
     return JsonResponse(data, safe=False)
+
+
+# ---------------------------------------------------------------------------
+# Paper Trading Views
+# ---------------------------------------------------------------------------
+
+
+def paper_list(request: HttpRequest) -> HttpResponse:
+    """List all paper trading sessions."""
+    sessions = PaperTradingSession.objects.all()
+    running = sessions.filter(status=PaperTradingSession.STATUS_RUNNING)
+    return render(request, "dashboard/paper_list.html", {
+        "active_nav": "paper",
+        "sessions": sessions,
+        "running_sessions": running,
+    })
+
+
+def paper_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """Detail view for a single paper trading session."""
+    session = get_object_or_404(PaperTradingSession, pk=pk)
+    trades = PaperTrade.objects.filter(session=session)
+    events = SessionEvent.objects.filter(session=session)[:50]
+    open_trades = trades.filter(closed_at__isnull=True)
+    closed_trades = trades.filter(closed_at__isnull=False)
+
+    matching_backtests = BacktestRun.objects.filter(
+        strategy=session.strategy,
+        instrument=session.instrument,
+        status=BacktestRun.STATUS_COMPLETED,
+    ).order_by("-created_at")[:10]
+
+    return render(request, "dashboard/paper_detail.html", {
+        "active_nav": "paper",
+        "session": session,
+        "trades": trades,
+        "events": events,
+        "open_trades": open_trades,
+        "closed_trades": closed_trades,
+        "matching_backtests": matching_backtests,
+    })
+
+
+def paper_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete a paper trading session."""
+    if request.method != "POST":
+        return HttpResponse(status=405)
+    session = get_object_or_404(PaperTradingSession, pk=pk)
+    session.delete()
+    return redirect("dashboard:paper_list")
+
+
+def comparison_view(request: HttpRequest, paper_pk: int, backtest_pk: int) -> HttpResponse:
+    """Side-by-side comparison of paper session vs backtest."""
+    session = get_object_or_404(PaperTradingSession, pk=paper_pk)
+    bt_run = get_object_or_404(BacktestRun, pk=backtest_pk)
+
+    from pyfx.analysis.comparison import compare_sessions
+
+    report = compare_sessions(session_id=paper_pk, backtest_id=backtest_pk)
+
+    return render(request, "dashboard/comparison.html", {
+        "active_nav": "paper",
+        "session": session,
+        "bt_run": bt_run,
+        "report": report,
+    })
+
+
+def risk_dashboard(request: HttpRequest) -> HttpResponse:
+    """Risk monitoring dashboard."""
+    session = (
+        PaperTradingSession.objects.filter(status=PaperTradingSession.STATUS_RUNNING)
+        .order_by("-started_at")
+        .first()
+    )
+    if session is None:
+        session = PaperTradingSession.objects.order_by("-started_at").first()
+
+    snapshots: list[object] = []
+    events: list[object] = []
+    open_trades: list[object] = []
+
+    if session is not None:
+        snapshots = list(
+            RiskSnapshot.objects.filter(session=session).order_by("-timestamp")[:50]
+        )
+        events = list(
+            SessionEvent.objects.filter(
+                session=session,
+                event_type__in=["risk_warning", "circuit_breaker", "position_limit"],
+            ).order_by("-timestamp")[:20]
+        )
+        open_trades = list(
+            PaperTrade.objects.filter(session=session, closed_at__isnull=True)
+        )
+
+    return render(request, "dashboard/risk.html", {
+        "active_nav": "risk",
+        "session": session,
+        "snapshots": snapshots,
+        "risk_events": events,
+        "open_trades": open_trades,
+    })
+
+
+def api_paper_trades(request: HttpRequest, pk: int) -> JsonResponse:
+    """Return all trades for a paper trading session."""
+    session = get_object_or_404(PaperTradingSession, pk=pk)
+    trades = PaperTrade.objects.filter(session=session)
+    return JsonResponse([
+        {
+            "id": t.pk,
+            "instrument": t.instrument,
+            "side": t.side,
+            "quantity": t.quantity,
+            "open_price": t.open_price,
+            "close_price": t.close_price,
+            "realized_pnl": t.realized_pnl,
+            "opened_at": t.opened_at.isoformat(),
+            "closed_at": t.closed_at.isoformat() if t.closed_at else None,
+            "fill_latency_ms": t.fill_latency_ms,
+            "slippage_ticks": t.slippage_ticks,
+            "is_open": t.is_open,
+        }
+        for t in trades
+    ], safe=False)
+
+
+def api_paper_events(request: HttpRequest, pk: int) -> JsonResponse:
+    """Return events for a paper trading session."""
+    session = get_object_or_404(PaperTradingSession, pk=pk)
+    events = SessionEvent.objects.filter(session=session)[:100]
+    return JsonResponse([
+        {
+            "timestamp": e.timestamp.isoformat(),
+            "event_type": e.event_type,
+            "message": e.message,
+        }
+        for e in events
+    ], safe=False)
+
+
+def api_paper_risk_snapshots(request: HttpRequest, pk: int) -> JsonResponse:
+    """Return risk snapshots for a paper trading session."""
+    session = get_object_or_404(PaperTradingSession, pk=pk)
+    snapshots = RiskSnapshot.objects.filter(session=session).order_by("timestamp")
+    return JsonResponse([
+        {
+            "timestamp": s.timestamp.isoformat(),
+            "equity": s.equity,
+            "daily_pnl": s.daily_pnl,
+            "open_positions": s.open_positions,
+            "drawdown_pct": s.drawdown_pct,
+            "utilization_pct": s.utilization_pct,
+        }
+        for s in snapshots
+    ], safe=False)
+
+
+def api_comparison_data(
+    request: HttpRequest, paper_pk: int, backtest_pk: int,
+) -> JsonResponse:
+    """Return comparison data as JSON."""
+    from pyfx.analysis.comparison import compare_sessions
+
+    report = compare_sessions(session_id=paper_pk, backtest_id=backtest_pk)
+    return JsonResponse(report.model_dump(mode="json"))
+
+
+def api_paper_equity_curve(request: HttpRequest, pk: int) -> JsonResponse:
+    """Return equity curve from risk snapshots for a paper session."""
+    session = get_object_or_404(PaperTradingSession, pk=pk)
+    snapshots = RiskSnapshot.objects.filter(session=session).order_by("timestamp")
+    data = [
+        {"time": s.timestamp.isoformat(), "value": round(s.equity, 2)}
+        for s in snapshots
+    ]
+    return JsonResponse(data, safe=False)
+
+
+def api_paper_cumulative_pnl(request: HttpRequest, pk: int) -> JsonResponse:
+    """Return cumulative P&L from closed paper trades."""
+    session = get_object_or_404(PaperTradingSession, pk=pk)
+    trades = (
+        PaperTrade.objects
+        .filter(session=session, closed_at__isnull=False, realized_pnl__isnull=False)
+        .order_by("closed_at")
+    )
+    running = 0.0
+    data = []
+    for t in trades:
+        running += t.realized_pnl  # type: ignore[operator]
+        data.append({
+            "time": int(t.closed_at.timestamp()),  # type: ignore[union-attr]
+            "value": round(running, 2),
+        })
+    return JsonResponse(data, safe=False)
+
+
+def api_paper_trade_markers(request: HttpRequest, pk: int) -> JsonResponse:
+    """Return entry/exit markers for paper trades."""
+    session = get_object_or_404(PaperTradingSession, pk=pk)
+    trades = PaperTrade.objects.filter(session=session).order_by("opened_at")
+    markers: list[dict[str, object]] = []
+    for idx, t in enumerate(trades):
+        markers.append({
+            "time": int(t.opened_at.timestamp()),
+            "side": t.side,
+            "type": "entry",
+            "price": t.open_price,
+            "pnl": None,
+            "tradeIdx": idx,
+        })
+        if t.closed_at and t.close_price is not None:
+            markers.append({
+                "time": int(t.closed_at.timestamp()),
+                "side": t.side,
+                "type": "exit",
+                "price": t.close_price,
+                "pnl": t.realized_pnl,
+                "tradeIdx": idx,
+            })
+    return JsonResponse(markers, safe=False)

@@ -2,8 +2,9 @@
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class BacktestConfig(BaseModel):
@@ -104,3 +105,68 @@ class BacktestResult(BaseModel):
     trades: list[TradeRecord] = Field(default_factory=list)
     equity_curve: list[EquityPoint] = Field(default_factory=list)
     duration_seconds: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Live / Paper Trading Types
+# ---------------------------------------------------------------------------
+
+
+class LiveTradingConfig(BaseModel):
+    """Configuration for a live/paper trading session."""
+
+    strategy: str = Field(description="Strategy name")
+    instrument: str = Field(default="", description="Primary instrument (backward compat)")
+    instruments: list[str] = Field(
+        default_factory=list,
+        description="Instruments to trade (e.g. ['XAU/USD', 'EUR/USD'])",
+    )
+    bar_type: str = Field(
+        default="1-MINUTE-LAST-EXTERNAL",
+        description="Primary bar type",
+    )
+    extra_bar_types: list[str] = Field(
+        default_factory=list,
+        description="Additional bar types for multi-timeframe strategies",
+    )
+    strategy_params: dict[str, bool | int | float | str] = Field(default_factory=dict)
+    trade_size: Decimal = Field(default=Decimal("100000"))
+    account_currency: str = Field(default="USD")
+
+    @model_validator(mode="after")
+    def _normalize_instruments(self) -> "LiveTradingConfig":
+        """Ensure both ``instrument`` and ``instruments`` are consistent."""
+        if not self.instruments and self.instrument:
+            self.instruments = [self.instrument]
+        if self.instruments and not self.instrument:
+            self.instrument = self.instruments[0]
+        if not self.instruments:
+            msg = "At least one instrument is required"
+            raise ValueError(msg)
+        return self
+
+
+class TradingEvent(BaseModel):
+    """A timestamped event from a live trading session."""
+
+    timestamp: datetime
+    event_type: str = Field(
+        description=(
+            "Event type: order_submitted, order_filled, position_opened, "
+            "position_closed, risk_breach, circuit_breaker, "
+            "connection_lost, connection_restored, info"
+        ),
+    )
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConnectionTestResult(BaseModel):
+    """Result of an IB connection smoke test."""
+
+    success: bool
+    elapsed_seconds: float
+    diagnostics: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    instrument_specs: dict[str, str] | None = None
+    error: str | None = None

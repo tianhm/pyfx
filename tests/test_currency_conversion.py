@@ -23,7 +23,6 @@ from pyfx.backtest.runner import (
 from pyfx.core.instruments import get_instrument_spec
 from pyfx.core.types import BacktestConfig
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

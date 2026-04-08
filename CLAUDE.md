@@ -8,22 +8,27 @@ pyfx is a backtesting and live trading tool for forex and other instruments, pow
 
 ```
 CLI (pyfx/cli.py)
-  -> backtest/runner.py -> NautilusTrader BacktestEngine
-                        -> PyfxStrategy (pyfx/strategies/)
+  -> backtest/runner.py  -> NautilusTrader BacktestEngine  -> PyfxStrategy
+  -> live/runner.py      -> NautilusTrader TradingNode     -> PyfxStrategy (same class)
+                         -> adapters/ib.py (IB adapter factory)
+                         -> live/risk.py (RiskMonitorActor)
+  -> analysis/comparison.py  -> Paper vs Backtest trade matching
 Results -> Django DB (pyfx/web/dashboard/) -> Web views + JSON APIs
 ```
 
-**Key flow:** User provides bar data (CSV/Parquet) + strategy name. The backtest runner creates a NautilusTrader `BacktestEngine`, loads the strategy, feeds it bars, and extracts results (trades, equity curve, metrics).
+**Backtest flow:** User provides bar data (CSV/Parquet) + strategy name. The backtest runner creates a NautilusTrader `BacktestEngine`, loads the strategy, feeds it bars, and extracts results (trades, equity curve, metrics).
+
+**Live/Paper flow:** Same strategy runs under NautilusTrader `TradingNode` connected to Interactive Brokers via `DockerizedIBGateway`. The `RiskMonitorActor` (native NT Actor) handles risk limits, circuit breakers, and DB event logging. Trades/events persist to Django DB for dashboard viewing and comparison against backtests.
 
 ## Project Structure
 
 ```
 pyfx/
   __init__.py
-  cli.py                     # Click CLI entry point (backtest, strategies, generate-sample-data, web)
+  cli.py                     # Click CLI entry point (backtest, strategies, live, web)
   core/
-    config.py                # Pydantic settings (PYFX_ prefix, .env support)
-    types.py                 # Pydantic models: BacktestConfig, BacktestResult, TradeRecord, EquityPoint
+    config.py                # Pydantic settings (PYFX_ prefix, .env support, IB + risk config)
+    types.py                 # Pydantic models: BacktestConfig, BacktestResult, LiveTradingConfig, TradingEvent
   strategies/
     base.py                  # PyfxStrategy base class (wraps NautilusTrader Strategy)
     loader.py                # Strategy discovery via entry points + directory scanning
@@ -35,7 +40,15 @@ pyfx/
     dukascopy.py             # Dukascopy CSV ingestion → OHLCV Parquet
   backtest/
     runner.py                # NautilusTrader BacktestEngine integration
-  adapters/                  # (future) live broker adapters
+  adapters/
+    ib.py                    # IB adapter factory (builds TradingNodeConfig)
+    instruments.py           # pyfx instrument -> IB contract/instrument-id mapping
+  live/
+    runner.py                # TradingNode lifecycle (start/stop/status/history)
+    risk.py                  # RiskMonitorActor (NautilusTrader Actor for risk + logging)
+    events.py                # Event persistence bridge (NT events -> Django DB)
+  analysis/
+    comparison.py            # Paper vs backtest trade matching and delta analysis
   web/
     pyfx_web/settings.py     # Django settings
     dashboard/               # Django app: models, views, URLs, migrations
@@ -71,6 +84,12 @@ uv run pyfx strategies                                                          
 uv run pyfx generate-sample-data                                                    # Create synthetic test data
 uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
 uv run pyfx web                                                                     # Start Django dashboard
+uv run pyfx live start -s coban_reborn -i XAU/USD --extra-bar-type 5-MINUTE-LAST-EXTERNAL --extra-bar-type 15-MINUTE-LAST-EXTERNAL  # Start paper trading
+uv run pyfx live stop                                                                # Stop running session
+uv run pyfx live status                                                              # Current positions, P&L, risk
+uv run pyfx live history                                                             # Morning review (last 24h)
+uv run pyfx live compare --session 1 --backtest 2                                    # Compare paper vs backtest
+uv run pyfx live config                                                              # Show IB + risk configuration
 ```
 
 ## Configuration
@@ -88,6 +107,17 @@ Pydantic settings with `PYFX_` prefix. Supports `.env` files.
 | `PYFX_SECRET_KEY` | Django secret key | dev default (change in prod) |
 | `PYFX_DEBUG` | Django DEBUG mode | `true` |
 | `PYFX_ALLOWED_HOSTS` | Django ALLOWED_HOSTS (JSON list) | `["*"]` |
+| `PYFX_IB_USERNAME` | IB Gateway/TWS username | None |
+| `PYFX_IB_PASSWORD` | IB Gateway/TWS password | None |
+| `PYFX_IB_ACCOUNT_ID` | IB account ID (DU prefix = paper) | None |
+| `PYFX_IB_PORT` | IB Gateway port (4002=paper, 4001=live) | 4002 |
+| `PYFX_IB_TRADING_MODE` | `paper` or `live` | `paper` |
+| `PYFX_ACCOUNT_CURRENCY` | Account base currency (USD/CHF/GBP/EUR) | `USD` |
+| `PYFX_RISK_MAX_POSITIONS` | Max concurrent open positions | 3 |
+| `PYFX_RISK_DAILY_LOSS_LIMIT` | Daily loss circuit breaker (USD) | 2000 |
+| `PYFX_RISK_MAX_DRAWDOWN_PCT` | Max drawdown % before auto-stop | 10.0 |
+| `PYFX_RISK_POSITION_SIZE_PCT` | % of equity to risk per trade | 2.0 |
+| `PYFX_RISK_SIZING_METHOD` | `fixed_fractional` or `atr_based` | `fixed_fractional` |
 
 ## Quality Gates (mandatory before commit)
 
@@ -169,6 +199,14 @@ All new code must include tests. No exceptions.
 - **CobanReborn defaults**: `entry_mode="trend_follow"`, `exit_mode="atr"`, 24h trading (`session_start_hour=0`, `session_end_hour=24`). Use `-p session_start_hour=8 -p session_end_hour=17` for EUR/GBP. The old `"full"` mode requires 5-layer confluence (often 0 trades). The `-p` CLI flag parses `true`/`false` as strings, not booleans — use `entry_mode=trend_follow` not boolean params via CLI.
 - **Non-FX instruments**: `TestInstrumentProvider.default_fx_ccy()` creates any pair with FX-style 5-decimal precision. For gold (XAU/USD ~$3000) and oil, the pip size (0.0001) is unrealistic — use ATR-based exits which auto-adapt to volatility. Fixed pip TP/SL need scaling (e.g., 300 pips for gold vs 10 for EUR/USD).
 - **Dukascopy CLI flags**: Use `--date-from`/`--date-to` (not `-s`/`-e`), `-t m1` for timeframe, `-v` for volumes, `-f csv` for format, `--directory .` to save in current dir. Instrument names: `eurusd`, `usdjpy`, `gbpusd`, `xauusd`, `lightcmdusd` (WTI), `usdchf`, `eurgbp`. `bcousd`/`brentcmdusd` returns empty data. `audusd`/`nzdusd` may fail (IP blocking — use VPN).
+- **IB adapter dependency**: `nautilus_trader[ib]` pulls in `nautilus_ibapi` + `ibapi`. The IB adapter module exists in `nautilus_trader.adapters.interactive_brokers` but requires `ibapi` at import time — always use lazy imports inside functions, never at module level.
+- **IB Gateway Docker**: Uses `DockerizedIBGatewayConfig` from NautilusTrader. Requires Docker installed. First run pulls `ghcr.io/gnzsnz/ib-gateway:stable` (~500MB). Gateway takes ~30s to start.
+- **IB instrument IDs**: FX pairs use IDEALPRO exchange (`EUR/USD.IDEALPRO`). XAU/USD is a commodity on SMART exchange (`XAUUSD.SMART`). See `pyfx/adapters/instruments.py` for the full mapping.
+- **IB paper accounts**: Account IDs start with "DU". Port 4002 = paper IBG, 4001 = live IBG. The `--confirm-live` flag is required for live mode.
+- **RiskMonitorActor**: Native NautilusTrader Actor plugged into the event bus. Has direct access to `self.portfolio` and `self.cache`. Do NOT use standalone risk classes — use the Actor pattern.
+- **TradingNode vs BacktestEngine**: Same `PyfxStrategy` class works unchanged in both. The runner module is the only difference: `backtest/runner.py` uses `BacktestEngine`, `live/runner.py` uses `TradingNode`.
+- **NautilusTrader streaming**: `StreamingConfig` auto-persists all events/bars/fills to Parquet at `~/.pyfx/catalog/live/`. Combined with `save_state=True`, this enables crash recovery.
+- **Paper vs backtest comparison**: `pyfx/analysis/comparison.py` matches trades by time proximity (+/- 5 min) and side. Unmatched paper trades = false signals, unmatched backtest trades = missed signals.
 - **Sweep scripts**: `scripts/coban_sweep.py` runs 10 entry/exit variations on EUR/USD. `scripts/coban_multi_pair.py` runs top variations across 5 instruments. `scripts/param_sensitivity.py` perturbs 7 key parameters +/- 40%. `scripts/walk_forward.py` runs rolling 3-month window analysis. All import `run_backtest` directly — run with `uv run python scripts/<name>.py`.
 
 ## Security

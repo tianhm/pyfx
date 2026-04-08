@@ -32,4 +32,42 @@ urlpatterns = [
     path("api/data/<int:pk>/delete/", views.dataset_delete, name="dataset_delete"),
     path("api/data/<int:pk>/redownload/", views.dataset_redownload, name="dataset_redownload"),
     path("api/data/running/", views.api_running_downloads, name="api_running_downloads"),
+    # Paper trading routes
+    path("paper/", views.paper_list, name="paper_list"),
+    path("paper/<int:pk>/", views.paper_detail, name="paper_detail"),
+    path("paper/<int:pk>/delete/", views.paper_delete, name="paper_delete"),
+    path(
+        "paper/<int:paper_pk>/compare/<int:backtest_pk>/",
+        views.comparison_view,
+        name="comparison_view",
+    ),
+    path("api/paper/<int:pk>/trades/", views.api_paper_trades, name="api_paper_trades"),
+    path("api/paper/<int:pk>/events/", views.api_paper_events, name="api_paper_events"),
+    path(
+        "api/paper/<int:pk>/risk-snapshots/",
+        views.api_paper_risk_snapshots,
+        name="api_paper_risk_snapshots",
+    ),
+    path(
+        "api/compare/<int:paper_pk>/<int:backtest_pk>/",
+        views.api_comparison_data,
+        name="api_comparison_data",
+    ),
+    path(
+        "api/paper/<int:pk>/equity/",
+        views.api_paper_equity_curve,
+        name="api_paper_equity_curve",
+    ),
+    path(
+        "api/paper/<int:pk>/cumulative-pnl/",
+        views.api_paper_cumulative_pnl,
+        name="api_paper_cumulative_pnl",
+    ),
+    path(
+        "api/paper/<int:pk>/trade-markers/",
+        views.api_paper_trade_markers,
+        name="api_paper_trade_markers",
+    ),
+    # Risk dashboard
+    path("risk/", views.risk_dashboard, name="risk_dashboard"),
 ]

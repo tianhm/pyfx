@@ -14,7 +14,6 @@ from pyfx.backtest.runner import (
 )
 from pyfx.strategies.loader import find_strategy_config_class
 
-
 # ---------------------------------------------------------------------------
 # _to_utc_datetime
 # ---------------------------------------------------------------------------

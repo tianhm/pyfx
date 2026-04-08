@@ -1,0 +1,259 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Comparison - pyfx{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <a href="{% url 'dashboard:paper_detail' session.pk %}" class="text-xs text-txt-tertiary hover:text-txt-secondary">&larr; Session #{{ session.pk }}</a>
+    <h1 class="text-lg font-semibold text-txt-raise mt-1">
+        Paper #{{ session.pk }} vs Backtest #{{ bt_run.pk }}
+    </h1>
+    <p class="text-sm text-txt-secondary">{{ session.strategy }} &middot; {{ session.instrument }}</p>
+</div>
+
+<!-- Summary deltas -->
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+    <div class="ox-stat">
+        <div class="ox-stat-label">Paper P&L</div>
+        <div class="ox-stat-value text-base {% if report.total_pnl_paper > 0 %}text-accent{% elif report.total_pnl_paper < 0 %}text-error{% else %}text-txt-raise{% endif %}">${{ report.total_pnl_paper|floatformat:2 }}</div>
+    </div>
+    <div class="ox-stat">
+        <div class="ox-stat-label">Backtest P&L</div>
+        <div class="ox-stat-value text-base {% if report.total_pnl_backtest > 0 %}text-accent{% elif report.total_pnl_backtest < 0 %}text-error{% else %}text-txt-raise{% endif %}">${{ report.total_pnl_backtest|floatformat:2 }}</div>
+    </div>
+    <div class="ox-stat">
+        <div class="ox-stat-label">P&L Delta</div>
+        <div class="ox-stat-value text-base {% if report.pnl_difference > 0 %}text-accent{% elif report.pnl_difference < 0 %}text-error{% else %}text-txt-raise{% endif %}">${{ report.pnl_difference|floatformat:2 }}</div>
+    </div>
+    <div class="ox-stat">
+        <div class="ox-stat-label">Matched</div>
+        <div class="ox-stat-value text-base text-txt-raise">{{ report.matched|length }}</div>
+    </div>
+    <div class="ox-stat">
+        <div class="ox-stat-label">Paper Only</div>
+        <div class="ox-stat-value text-base text-warning">{{ report.paper_only|length }}</div>
+    </div>
+    <div class="ox-stat">
+        <div class="ox-stat-label">Backtest Only</div>
+        <div class="ox-stat-value text-base text-warning">{{ report.backtest_only|length }}</div>
+    </div>
+</div>
+
+<!-- Metrics comparison table -->
+<div class="ox-card overflow-hidden mb-6">
+    <table class="w-full text-sm">
+        <thead><tr class="border-b border-ox-border">
+            <th class="table-header text-left px-4 py-3">Metric</th>
+            <th class="table-header text-right px-4 py-3">Paper</th>
+            <th class="table-header text-right px-4 py-3">Backtest</th>
+            <th class="table-header text-right px-4 py-3">Delta</th>
+        </tr></thead>
+        <tbody>
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 text-txt">Total P&L</td>
+                <td class="px-4 py-2 text-right num">${{ report.total_pnl_paper|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num">${{ report.total_pnl_backtest|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num {% if report.pnl_difference > 0 %}text-accent{% elif report.pnl_difference < 0 %}text-error{% endif %}">${{ report.pnl_difference|floatformat:2 }}</td>
+            </tr>
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 text-txt">Trades</td>
+                <td class="px-4 py-2 text-right num">{{ report.trades_paper }}</td>
+                <td class="px-4 py-2 text-right num">{{ report.trades_backtest }}</td>
+                <td class="px-4 py-2 text-right num">{{ report.trades_paper|add:report.trades_backtest|default:"0" }}</td>
+            </tr>
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 text-txt">Win Rate</td>
+                <td class="px-4 py-2 text-right num">{{ report.win_rate_paper|floatformat:1 }}%</td>
+                <td class="px-4 py-2 text-right num">{{ report.win_rate_backtest|floatformat:1 }}%</td>
+                <td class="px-4 py-2 text-right num"></td>
+            </tr>
+            {% if report.profit_factor_paper != None and report.profit_factor_backtest != None %}
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 text-txt">Profit Factor</td>
+                <td class="px-4 py-2 text-right num">{{ report.profit_factor_paper|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num">{{ report.profit_factor_backtest|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num"></td>
+            </tr>
+            {% endif %}
+            {% if report.avg_slippage_delta != None %}
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 text-txt">Avg Slippage Delta</td>
+                <td class="px-4 py-2 text-right num" colspan="2"></td>
+                <td class="px-4 py-2 text-right num text-warning">{{ report.avg_slippage_delta|floatformat:5 }}</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Charts -->
+<div class="ox-card mb-6">
+    <div class="flex gap-0 px-4 py-2 border-b border-ox-border">
+        <button class="cmp-tab cmp-tab-active" onclick="showCmpTab('equity')">Equity Curves</button>
+        <button class="cmp-tab" onclick="showCmpTab('daily-pnl')">Daily P&L</button>
+    </div>
+    <div id="cmp-panel-equity" class="p-2">
+        <div id="equity-overlay-chart" style="height: 300px;">
+            <p class="text-center text-txt-tertiary text-xs py-12 font-mono">Loading...</p>
+        </div>
+    </div>
+    <div id="cmp-panel-daily-pnl" class="hidden p-2">
+        <div id="daily-pnl-chart" style="height: 250px;"></div>
+    </div>
+</div>
+
+<!-- Daily comparison -->
+{% if report.daily_comparison %}
+<div class="section-label mb-3">Daily P&L Comparison</div>
+<div class="ox-card overflow-hidden mb-6">
+    <table class="w-full text-sm">
+        <thead><tr class="border-b border-ox-border">
+            <th class="table-header text-left px-4 py-2">Date</th>
+            <th class="table-header text-right px-4 py-2">Paper P&L</th>
+            <th class="table-header text-right px-4 py-2">Backtest P&L</th>
+            <th class="table-header text-right px-4 py-2">Delta</th>
+            <th class="table-header text-right px-4 py-2">Paper Trades</th>
+            <th class="table-header text-right px-4 py-2">BT Trades</th>
+        </tr></thead>
+        <tbody>
+            {% for d in report.daily_comparison %}
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 text-txt-secondary">{{ d.date }}</td>
+                <td class="px-4 py-2 text-right num {% if d.paper_pnl > 0 %}text-accent{% elif d.paper_pnl < 0 %}text-error{% endif %}">${{ d.paper_pnl|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num {% if d.backtest_pnl > 0 %}text-accent{% elif d.backtest_pnl < 0 %}text-error{% endif %}">${{ d.backtest_pnl|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num {% if d.delta > 0 %}text-accent{% elif d.delta < 0 %}text-error{% endif %}">${{ d.delta|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num text-txt">{{ d.paper_trades }}</td>
+                <td class="px-4 py-2 text-right num text-txt">{{ d.backtest_trades }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<!-- Matched trades detail -->
+{% if report.matched %}
+<div class="section-label mb-3">Matched Trades</div>
+<div class="ox-card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="border-b border-ox-border">
+            <th class="table-header text-left px-4 py-2">Side</th>
+            <th class="table-header text-right px-4 py-2">Paper Entry</th>
+            <th class="table-header text-right px-4 py-2">BT Entry</th>
+            <th class="table-header text-right px-4 py-2">Slippage</th>
+            <th class="table-header text-right px-4 py-2">Paper P&L</th>
+            <th class="table-header text-right px-4 py-2">BT P&L</th>
+            <th class="table-header text-right px-4 py-2">P&L Delta</th>
+            <th class="table-header text-right px-4 py-2">Time Delta</th>
+        </tr></thead>
+        <tbody>
+            {% for m in report.matched %}
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 {% if m.paper_trade.side == 'BUY' %}text-accent{% else %}text-error{% endif %}">{{ m.paper_trade.side }}</td>
+                <td class="px-4 py-2 text-right num text-txt">{{ m.paper_trade.open_price|floatformat:5 }}</td>
+                <td class="px-4 py-2 text-right num text-txt">{% if m.backtest_trade %}{{ m.backtest_trade.open_price|floatformat:5 }}{% endif %}</td>
+                <td class="px-4 py-2 text-right num text-warning">{% if m.slippage_delta != None %}{{ m.slippage_delta|floatformat:5 }}{% else %}-{% endif %}</td>
+                <td class="px-4 py-2 text-right num {% if m.paper_trade.realized_pnl and m.paper_trade.realized_pnl > 0 %}text-accent{% elif m.paper_trade.realized_pnl and m.paper_trade.realized_pnl < 0 %}text-error{% endif %}">${{ m.paper_trade.realized_pnl|default_if_none:"0"|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num">{% if m.backtest_trade %} ${{ m.backtest_trade.realized_pnl|default_if_none:"0"|floatformat:2 }}{% endif %}</td>
+                <td class="px-4 py-2 text-right num {% if m.pnl_delta and m.pnl_delta > 0 %}text-accent{% elif m.pnl_delta and m.pnl_delta < 0 %}text-error{% endif %}">{% if m.pnl_delta != None %}${{ m.pnl_delta|floatformat:2 }}{% else %}-{% endif %}</td>
+                <td class="px-4 py-2 text-right num text-txt-secondary">{% if m.timing_delta_seconds != None %}{{ m.timing_delta_seconds|floatformat:0 }}s{% else %}-{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<style>
+.cmp-tab { padding: 8px 16px; font-size: 13px; color: #7b8694; border-bottom: 2px solid transparent; cursor: pointer; background: none; border-top: none; border-left: none; border-right: none; }
+.cmp-tab:hover { color: #b4bcc8; }
+.cmp-tab-active { color: #48d597; border-bottom-color: #48d597; }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    function chartOptions() {
+        return {
+            layout: { background: { type: 'solid', color: '#0e1115' }, textColor: '#7b8694', fontFamily: '"JetBrains Mono", monospace', fontSize: 10 },
+            grid: { vertLines: { color: '#1e2530' }, horzLines: { color: '#1e2530' } },
+            timeScale: { timeVisible: true, borderColor: '#1e2530' },
+            rightPriceScale: { borderColor: '#1e2530' },
+            crosshair: { mode: 0, vertLine: { color: '#2a3140', style: 2 }, horzLine: { color: '#2a3140', style: 2 } },
+        };
+    }
+
+    // ── Equity overlay chart ──
+    var equityEl = document.getElementById('equity-overlay-chart');
+    if (equityEl) {
+        Promise.all([
+            fetch('{% url "dashboard:api_paper_equity_curve" session.pk %}').then(function(r) { return r.json(); }),
+            fetch('{% url "dashboard:api_equity_curve" bt_run.pk %}').then(function(r) { return r.json(); }),
+        ]).then(function(results) {
+            var paperData = results[0];
+            var btData = results[1];
+            equityEl.innerHTML = '';
+            if (paperData.length <= 1 && btData.length <= 1) {
+                equityEl.innerHTML = '<p class="text-center text-txt-tertiary text-xs py-12 font-mono">No equity data available</p>';
+                return;
+            }
+            var chart = LightweightCharts.createChart(equityEl, Object.assign({}, chartOptions(), { width: equityEl.clientWidth, height: 300 }));
+            // Paper equity (green area)
+            if (paperData.length > 1) {
+                var paperSeries = chart.addAreaSeries({
+                    lineColor: '#48d597', topColor: 'rgba(72, 213, 151, 0.15)',
+                    bottomColor: 'rgba(72, 213, 151, 0.0)', lineWidth: 2, title: 'Paper',
+                });
+                paperSeries.setData(paperData.map(function(d) { return { time: Math.floor(new Date(d.time).getTime() / 1000), value: d.value }; }));
+            }
+            // Backtest equity (blue line)
+            if (btData.length > 1) {
+                var btSeries = chart.addLineSeries({
+                    color: '#52a9ff', lineWidth: 2, lineStyle: 2, title: 'Backtest',
+                });
+                btSeries.setData(btData.map(function(d) { return { time: Math.floor(new Date(d.time).getTime() / 1000), value: d.value }; }));
+            }
+            chart.timeScale().fitContent();
+            new ResizeObserver(function() { chart.applyOptions({ width: equityEl.clientWidth }); }).observe(equityEl);
+        });
+    }
+
+    // ── Daily P&L chart (from inline data) ──
+    var dailyData = [
+        {% for d in report.daily_comparison %}
+        { date: "{{ d.date|date:'Y-m-d' }}", paper: {{ d.paper_pnl }}, backtest: {{ d.backtest_pnl }} },
+        {% endfor %}
+    ];
+
+    var dailyInitialized = false;
+    window.showCmpTab = function(name) {
+        document.querySelectorAll('[id^="cmp-panel-"]').forEach(function(el) { el.classList.add('hidden'); });
+        document.querySelectorAll('.cmp-tab').forEach(function(el) { el.classList.remove('cmp-tab-active'); });
+        document.getElementById('cmp-panel-' + name).classList.remove('hidden');
+        event.target.classList.add('cmp-tab-active');
+        if (name === 'daily-pnl' && !dailyInitialized) {
+            dailyInitialized = true;
+            initDailyPnlChart();
+        }
+    };
+
+    function initDailyPnlChart() {
+        var el = document.getElementById('daily-pnl-chart');
+        if (!el || !dailyData.length) {
+            if (el) el.innerHTML = '<p class="text-center text-txt-tertiary text-xs py-12 font-mono">No daily data</p>';
+            return;
+        }
+        var chart = LightweightCharts.createChart(el, Object.assign({}, chartOptions(), { width: el.clientWidth, height: 250 }));
+        // Paper P&L (green histogram)
+        var paperSeries = chart.addHistogramSeries({ color: '#48d597', title: 'Paper' });
+        paperSeries.setData(dailyData.map(function(d) {
+            var t = Math.floor(new Date(d.date + 'T00:00:00Z').getTime() / 1000);
+            return { time: t, value: d.paper, color: d.paper >= 0 ? '#48d597' : '#e5484d' };
+        }));
+        // Backtest P&L (blue line overlay)
+        var btSeries = chart.addLineSeries({ color: '#52a9ff', lineWidth: 2, title: 'Backtest' });
+        btSeries.setData(dailyData.map(function(d) {
+            return { time: Math.floor(new Date(d.date + 'T00:00:00Z').getTime() / 1000), value: d.backtest };
+        }));
+        chart.timeScale().fitContent();
+        new ResizeObserver(function() { chart.applyOptions({ width: el.clientWidth }); }).observe(el);
+    }
+});
+</script>
+{% endblock %}

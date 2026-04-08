@@ -154,3 +154,133 @@ class EquitySnapshot(models.Model):
 
     class Meta:
         ordering = ["timestamp"]
+
+
+# ---------------------------------------------------------------------------
+# Paper / Live Trading Models
+# ---------------------------------------------------------------------------
+
+
+class PaperTradingSession(models.Model):
+    """A paper trading session (parallel to BacktestRun for live trading)."""
+
+    STATUS_RUNNING = "running"
+    STATUS_STOPPED = "stopped"
+    STATUS_ERROR = "error"
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, "Running"),
+        (STATUS_STOPPED, "Stopped"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Config
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_RUNNING)
+    strategy = models.CharField(max_length=200)
+    instrument = models.CharField(max_length=200)
+    bar_type = models.CharField(max_length=100, default="1-MINUTE-LAST-EXTERNAL")
+    started_at = models.DateTimeField()
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    account_currency = models.CharField(max_length=10, default="USD")
+    account_id = models.CharField(max_length=50, blank=True, default="")
+    config_json = models.JSONField(default=dict, blank=True)
+
+    # Aggregate metrics (updated as trades close)
+    total_pnl = models.FloatField(null=True, blank=True)
+    total_return_pct = models.FloatField(null=True, blank=True)
+    num_trades = models.IntegerField(default=0)
+    win_rate = models.FloatField(null=True, blank=True)
+    max_drawdown_pct = models.FloatField(null=True, blank=True)
+    profit_factor = models.FloatField(null=True, blank=True)
+    avg_trade_pnl = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+    def __str__(self) -> str:
+        pnl = f"${self.total_pnl:+,.2f}" if self.total_pnl is not None else "n/a"
+        return f"{self.strategy} | {self.instrument} | {pnl}"
+
+    @property
+    def win_rate_pct(self) -> float:
+        """Win rate as a percentage (0-100) for display."""
+        return float((self.win_rate or 0) * 100)
+
+    @property
+    def is_running(self) -> bool:
+        return self.status == self.STATUS_RUNNING
+
+    @property
+    def instrument_list(self) -> list[str]:
+        """Split comma-separated instrument string into a list."""
+        return [i.strip() for i in self.instrument.split(",") if i.strip()]
+
+
+class PaperTrade(models.Model):
+    """An individual trade from a paper trading session."""
+
+    session = models.ForeignKey(
+        PaperTradingSession, on_delete=models.CASCADE, related_name="trades",
+    )
+    instrument = models.CharField(max_length=50)
+    side = models.CharField(max_length=10)
+    quantity = models.FloatField()
+    open_price = models.FloatField()
+    close_price = models.FloatField(null=True, blank=True)
+    realized_pnl = models.FloatField(null=True, blank=True)
+    realized_return_pct = models.FloatField(null=True, blank=True)
+    opened_at = models.DateTimeField()
+    closed_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.FloatField(null=True, blank=True)
+
+    # Live-specific metrics
+    fill_latency_ms = models.FloatField(null=True, blank=True)
+    slippage_ticks = models.FloatField(null=True, blank=True)
+    spread_at_entry = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["opened_at"]
+
+    def __str__(self) -> str:
+        pnl = f"{self.realized_pnl:+.2f}" if self.realized_pnl is not None else "open"
+        return f"{self.side} {self.instrument} {pnl}"
+
+    @property
+    def is_open(self) -> bool:
+        return self.closed_at is None
+
+
+class SessionEvent(models.Model):
+    """A timestamped event from a paper trading session."""
+
+    session = models.ForeignKey(
+        PaperTradingSession, on_delete=models.CASCADE, related_name="events",
+    )
+    timestamp = models.DateTimeField()
+    event_type = models.CharField(max_length=50)
+    message = models.TextField()
+    details_json = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+
+    def __str__(self) -> str:
+        return f"[{self.event_type}] {self.message[:80]}"
+
+
+class RiskSnapshot(models.Model):
+    """Periodic risk state snapshot for monitoring."""
+
+    session = models.ForeignKey(
+        PaperTradingSession, on_delete=models.CASCADE, related_name="risk_snapshots",
+    )
+    timestamp = models.DateTimeField()
+    equity = models.FloatField()
+    daily_pnl = models.FloatField()
+    open_positions = models.IntegerField()
+    drawdown_pct = models.FloatField()
+    utilization_pct = models.FloatField()
+
+    class Meta:
+        ordering = ["-timestamp"]

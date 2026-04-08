@@ -1,0 +1,84 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Paper Trading - pyfx{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-lg font-semibold text-txt-raise">Paper Trading Sessions</h1>
+</div>
+
+{% if running_sessions %}
+<div class="mb-6">
+    <div class="section-label mb-3">Running</div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {% for s in running_sessions %}
+        <a href="{% url 'dashboard:paper_detail' s.pk %}" class="ox-card p-4 block">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="status-dot bg-accent animate-pulse"></span>
+                <span class="text-sm font-medium text-txt-raise">{{ s.strategy }}</span>
+                <span class="text-xs text-txt-secondary">{{ s.instrument }}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-xs">
+                <div><span class="text-txt-tertiary">P&L</span> <span class="num {% if s.total_pnl and s.total_pnl > 0 %}text-accent{% elif s.total_pnl and s.total_pnl < 0 %}text-error{% else %}text-txt{% endif %}">${{ s.total_pnl|default_if_none:"0"|floatformat:2 }}</span></div>
+                <div><span class="text-txt-tertiary">Trades</span> <span class="num text-txt">{{ s.num_trades }}</span></div>
+                <div><span class="text-txt-tertiary">Started</span> <span class="text-txt-secondary">{{ s.started_at|timesince }} ago</span></div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if sessions %}
+<div class="ox-card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="border-b border-ox-border">
+                <th class="table-header text-left px-4 py-3">Strategy</th>
+                <th class="table-header text-left px-4 py-3">Instrument</th>
+                <th class="table-header text-left px-4 py-3">Status</th>
+                <th class="table-header text-right px-4 py-3">P&L</th>
+                <th class="table-header text-right px-4 py-3">Trades</th>
+                <th class="table-header text-right px-4 py-3">Win Rate</th>
+                <th class="table-header text-right px-4 py-3">PF</th>
+                <th class="table-header text-right px-4 py-3">Max DD</th>
+                <th class="table-header text-left px-4 py-3">Started</th>
+                <th class="table-header px-4 py-3"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in sessions %}
+            <tr class="clickable-row border-b border-ox-border/50" onclick="window.location='{% url 'dashboard:paper_detail' s.pk %}'">
+                <td class="px-4 py-3 text-txt-raise font-medium">{{ s.strategy }}</td>
+                <td class="px-4 py-3 text-txt-secondary">{{ s.instrument }}</td>
+                <td class="px-4 py-3">
+                    {% if s.status == 'running' %}
+                    <span class="ox-badge bg-accent-bg text-accent">Running</span>
+                    {% elif s.status == 'stopped' %}
+                    <span class="ox-badge bg-ox-secondary text-txt-secondary">Stopped</span>
+                    {% else %}
+                    <span class="ox-badge bg-error-bg text-error">Error</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-right num {% if s.total_pnl and s.total_pnl > 0 %}text-accent{% elif s.total_pnl and s.total_pnl < 0 %}text-error{% else %}text-txt{% endif %}">${{ s.total_pnl|default_if_none:"0"|floatformat:2 }}</td>
+                <td class="px-4 py-3 text-right num text-txt">{{ s.num_trades }}</td>
+                <td class="px-4 py-3 text-right num text-txt">{{ s.win_rate_pct|floatformat:1 }}%</td>
+                <td class="px-4 py-3 text-right num text-txt">{{ s.profit_factor|default_if_none:"-"|floatformat:2 }}</td>
+                <td class="px-4 py-3 text-right num text-txt">{{ s.max_drawdown_pct|default_if_none:"0"|floatformat:2 }}%</td>
+                <td class="px-4 py-3 text-txt-secondary text-xs">{{ s.started_at|timesince }} ago</td>
+                <td class="px-4 py-3 text-right">
+                    <form method="post" action="{% url 'dashboard:paper_delete' s.pk %}" onclick="event.stopPropagation()" onsubmit="return confirm('Delete this session?')">
+                        {% csrf_token %}
+                        <button type="submit" class="btn-ghost text-xs text-error hover:text-error">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="ox-card p-8 text-center">
+    <p class="text-txt-secondary mb-2">No paper trading sessions yet.</p>
+    <p class="text-txt-tertiary text-sm">Start one with: <code class="text-accent text-xs">pyfx live start -s coban_reborn -i XAU/USD</code></p>
+</div>
+{% endif %}
+{% endblock %}

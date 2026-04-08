@@ -1,0 +1,147 @@
+{% extends "dashboard/base.html" %}
+{% block title %}Risk Dashboard - pyfx{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-lg font-semibold text-txt-raise">Risk Dashboard</h1>
+    {% if session and session.is_running %}
+    <span class="ox-badge bg-accent-bg text-accent">Live</span>
+    {% endif %}
+</div>
+
+{% if session %}
+<div class="text-sm text-txt-secondary mb-4">
+    Session #{{ session.pk }} &middot; {{ session.strategy }} &middot; {{ session.instrument }}
+    {% if session.is_running %}<span class="text-accent">(running)</span>{% endif %}
+</div>
+
+<!-- Risk gauges -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    <div class="ox-stat">
+        <div class="ox-stat-label">Equity</div>
+        <div class="ox-stat-value text-lg text-txt-raise">
+            {% if snapshots %}${{ snapshots.0.equity|floatformat:0 }}{% else %}-{% endif %}
+        </div>
+    </div>
+    <div class="ox-stat">
+        <div class="ox-stat-label">Daily P&L</div>
+        <div class="ox-stat-value text-lg {% if snapshots and snapshots.0.daily_pnl > 0 %}text-accent{% elif snapshots and snapshots.0.daily_pnl < 0 %}text-error{% else %}text-txt-raise{% endif %}">
+            {% if snapshots %}${{ snapshots.0.daily_pnl|floatformat:2 }}{% else %}-{% endif %}
+        </div>
+    </div>
+    <div class="ox-stat">
+        <div class="ox-stat-label">Drawdown</div>
+        <div class="ox-stat-value text-lg {% if snapshots and snapshots.0.drawdown_pct > 5 %}text-error{% elif snapshots and snapshots.0.drawdown_pct > 2 %}text-warning{% else %}text-txt-raise{% endif %}">
+            {% if snapshots %}{{ snapshots.0.drawdown_pct|floatformat:2 }}%{% else %}-{% endif %}
+        </div>
+    </div>
+    <div class="ox-stat">
+        <div class="ox-stat-label">Positions</div>
+        <div class="ox-stat-value text-lg text-txt-raise">
+            {{ open_trades|length }}
+        </div>
+    </div>
+</div>
+
+<!-- Open positions -->
+{% if open_trades %}
+<div class="section-label mb-3">Open Positions</div>
+<div class="ox-card overflow-hidden mb-6">
+    <table class="w-full text-sm">
+        <thead><tr class="border-b border-ox-border">
+            <th class="table-header text-left px-4 py-2">Side</th>
+            <th class="table-header text-left px-4 py-2">Instrument</th>
+            <th class="table-header text-right px-4 py-2">Quantity</th>
+            <th class="table-header text-right px-4 py-2">Entry Price</th>
+            <th class="table-header text-left px-4 py-2">Opened</th>
+        </tr></thead>
+        <tbody>
+            {% for t in open_trades %}
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 {% if t.side == 'BUY' %}text-accent{% else %}text-error{% endif %}">{{ t.side }}</td>
+                <td class="px-4 py-2 text-txt">{{ t.instrument }}</td>
+                <td class="px-4 py-2 text-right num text-txt">{{ t.quantity|floatformat:0 }}</td>
+                <td class="px-4 py-2 text-right num text-txt">{{ t.open_price|floatformat:5 }}</td>
+                <td class="px-4 py-2 text-txt-secondary text-xs">{{ t.opened_at|timesince }} ago</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<!-- Risk events -->
+<div class="section-label mb-3">Risk Events</div>
+{% if risk_events %}
+<div class="ox-card overflow-hidden mb-6">
+    <table class="w-full text-sm">
+        <thead><tr class="border-b border-ox-border">
+            <th class="table-header text-left px-4 py-2">Time</th>
+            <th class="table-header text-left px-4 py-2">Type</th>
+            <th class="table-header text-left px-4 py-2">Message</th>
+        </tr></thead>
+        <tbody>
+            {% for e in risk_events %}
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 text-txt-secondary text-xs whitespace-nowrap">{{ e.timestamp|date:"Y-m-d H:i:s" }}</td>
+                <td class="px-4 py-2">
+                    {% if e.event_type == 'circuit_breaker' %}
+                    <span class="ox-badge bg-error-bg text-error">{{ e.event_type }}</span>
+                    {% elif e.event_type == 'risk_warning' %}
+                    <span class="ox-badge bg-warning-bg text-warning">{{ e.event_type }}</span>
+                    {% else %}
+                    <span class="ox-badge bg-ox-secondary text-txt-secondary">{{ e.event_type }}</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-2 text-txt text-xs">{{ e.message }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="ox-card p-6 text-center text-txt-secondary text-sm mb-6">No risk events.</div>
+{% endif %}
+
+<!-- Risk snapshots history -->
+{% if snapshots and snapshots|length > 1 %}
+<div class="section-label mb-3">Risk History</div>
+<div class="ox-card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="border-b border-ox-border">
+            <th class="table-header text-left px-4 py-2">Time</th>
+            <th class="table-header text-right px-4 py-2">Equity</th>
+            <th class="table-header text-right px-4 py-2">Daily P&L</th>
+            <th class="table-header text-right px-4 py-2">Drawdown</th>
+            <th class="table-header text-right px-4 py-2">Positions</th>
+            <th class="table-header text-right px-4 py-2">Utilization</th>
+        </tr></thead>
+        <tbody>
+            {% for s in snapshots %}
+            <tr class="border-b border-ox-border/50">
+                <td class="px-4 py-2 text-txt-secondary text-xs">{{ s.timestamp|date:"Y-m-d H:i:s" }}</td>
+                <td class="px-4 py-2 text-right num text-txt">${{ s.equity|floatformat:0 }}</td>
+                <td class="px-4 py-2 text-right num {% if s.daily_pnl > 0 %}text-accent{% elif s.daily_pnl < 0 %}text-error{% endif %}">${{ s.daily_pnl|floatformat:2 }}</td>
+                <td class="px-4 py-2 text-right num {% if s.drawdown_pct > 5 %}text-error{% elif s.drawdown_pct > 2 %}text-warning{% else %}text-txt{% endif %}">{{ s.drawdown_pct|floatformat:2 }}%</td>
+                <td class="px-4 py-2 text-right num text-txt">{{ s.open_positions }}</td>
+                <td class="px-4 py-2 text-right num text-txt">{{ s.utilization_pct|floatformat:0 }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if session.is_running %}
+<script>
+// Auto-refresh every 30 seconds while session is running
+setTimeout(function() { window.location.reload(); }, 30000);
+</script>
+{% endif %}
+
+{% else %}
+<div class="ox-card p-8 text-center">
+    <p class="text-txt-secondary mb-2">No paper trading sessions found.</p>
+    <p class="text-txt-tertiary text-sm">Start one with: <code class="text-accent text-xs">pyfx live start -s coban_reborn -i XAU/USD</code></p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,13 +1,13 @@
-"""Shared business logic for saving backtest results to the Django database."""
+"""Shared business logic for saving results to the Django database."""
 
 from __future__ import annotations
 
-from datetime import UTC
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from pyfx.core.types import BacktestResult
-    from pyfx.web.dashboard.models import BacktestRun
+    from pyfx.core.types import BacktestResult, LiveTradingConfig
+    from pyfx.web.dashboard.models import BacktestRun, PaperTradingSession
 
 
 def save_backtest_result(
@@ -96,3 +96,117 @@ def save_backtest_result(
     ])
 
     return run
+
+
+# ---------------------------------------------------------------------------
+# Paper Trading Services
+# ---------------------------------------------------------------------------
+
+
+def create_paper_session(
+    config: LiveTradingConfig,
+    account_id: str,
+) -> PaperTradingSession:
+    """Create a new PaperTradingSession from a LiveTradingConfig."""
+    from pyfx.web.dashboard.models import PaperTradingSession
+
+    return PaperTradingSession.objects.create(
+        status=PaperTradingSession.STATUS_RUNNING,
+        strategy=config.strategy,
+        instrument=config.instrument,
+        bar_type=config.bar_type,
+        started_at=datetime.now(UTC),
+        account_currency=config.account_currency,
+        account_id=account_id,
+        config_json=config.model_dump(mode="json"),
+    )
+
+
+def stop_paper_session(session_id: int) -> None:
+    """Mark a PaperTradingSession as stopped."""
+    from pyfx.web.dashboard.models import PaperTradingSession
+
+    PaperTradingSession.objects.filter(pk=session_id).update(
+        status=PaperTradingSession.STATUS_STOPPED,
+        stopped_at=datetime.now(UTC),
+    )
+
+
+def save_paper_trade(
+    session_id: int,
+    instrument: str,
+    side: str,
+    quantity: float,
+    open_price: float,
+    opened_at: datetime,
+    close_price: float | None = None,
+    realized_pnl: float | None = None,
+    realized_return_pct: float | None = None,
+    closed_at: datetime | None = None,
+    duration_seconds: float | None = None,
+    fill_latency_ms: float | None = None,
+    slippage_ticks: float | None = None,
+    spread_at_entry: float | None = None,
+) -> int:
+    """Create a PaperTrade record and return its PK."""
+    from pyfx.web.dashboard.models import PaperTrade
+
+    trade = PaperTrade.objects.create(
+        session_id=session_id,
+        instrument=instrument,
+        side=side,
+        quantity=quantity,
+        open_price=open_price,
+        opened_at=opened_at,
+        close_price=close_price,
+        realized_pnl=realized_pnl,
+        realized_return_pct=realized_return_pct,
+        closed_at=closed_at,
+        duration_seconds=duration_seconds,
+        fill_latency_ms=fill_latency_ms,
+        slippage_ticks=slippage_ticks,
+        spread_at_entry=spread_at_entry,
+    )
+    return trade.pk
+
+
+def save_session_event(
+    session_id: int,
+    event_type: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+    timestamp: datetime | None = None,
+) -> None:
+    """Persist a single SessionEvent."""
+    from pyfx.web.dashboard.models import SessionEvent
+
+    SessionEvent.objects.create(
+        session_id=session_id,
+        timestamp=timestamp or datetime.now(UTC),
+        event_type=event_type,
+        message=message,
+        details_json=details or {},
+    )
+
+
+def save_risk_snapshot(
+    session_id: int,
+    equity: float,
+    daily_pnl: float,
+    open_positions: int,
+    drawdown_pct: float,
+    utilization_pct: float,
+    timestamp: datetime | None = None,
+) -> None:
+    """Persist a periodic risk state snapshot."""
+    from pyfx.web.dashboard.models import RiskSnapshot
+
+    RiskSnapshot.objects.create(
+        session_id=session_id,
+        timestamp=timestamp or datetime.now(UTC),
+        equity=equity,
+        daily_pnl=daily_pnl,
+        open_positions=open_positions,
+        drawdown_pct=drawdown_pct,
+        utilization_pct=utilization_pct,
+    )
