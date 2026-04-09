@@ -16,6 +16,10 @@ def build_trading_node_config(
     strategy_configs: list[ImportableStrategyConfig],
     actor_configs: list[ImportableActorConfig] | None = None,
     instrument_ids: list[str] | None = None,
+    *,
+    client_id: int | None = None,
+    catalog_path: str | None = None,
+    log_file_name: str | None = None,
 ) -> TradingNodeConfig:
     """Build a TradingNodeConfig wired to Interactive Brokers.
 
@@ -35,6 +39,7 @@ def build_trading_node_config(
         LiveRiskEngineConfig,
         TradingNodeConfig,
     )
+    from nautilus_trader.live.config import RoutingConfig
     from nautilus_trader.model.identifiers import InstrumentId
     from nautilus_trader.persistence.config import StreamingConfig
 
@@ -55,44 +60,50 @@ def build_trading_node_config(
         load_ids=load_ids,
     )
 
-    # --- Data client ---
+    # --- Data client (default=True routes all venues through IB) ---
+    # When using DockerizedIBGatewayConfig, ibg_port must be None (managed
+    # by the Docker container).  ibg_host is also managed by the container.
+    effective_client_id = client_id if client_id is not None else settings.ib_client_id
     data_client_config = InteractiveBrokersDataClientConfig(
         ibg_host=settings.ib_host,
-        ibg_port=settings.ib_port,
-        ibg_client_id=settings.ib_client_id,
+        ibg_port=None,
+        ibg_client_id=effective_client_id,
         dockerized_gateway=gateway_config,
         instrument_provider=instrument_provider_config,
+        routing=RoutingConfig(default=True),
     )
 
     # --- Execution client ---
     exec_client_config = InteractiveBrokersExecClientConfig(
         ibg_host=settings.ib_host,
-        ibg_port=settings.ib_port,
-        ibg_client_id=settings.ib_client_id,
+        ibg_port=None,
+        ibg_client_id=effective_client_id,
         account_id=settings.ib_account_id,
         dockerized_gateway=gateway_config,
         instrument_provider=instrument_provider_config,
+        routing=RoutingConfig(default=True),
     )
 
     # --- Native risk engine ---
+    # Note: max_notional_per_order keys must be InstrumentId strings (not
+    # currency codes).  Our RiskMonitorActor enforces position limits, so we
+    # only set the order-submit rate limiter here.
     risk_config = LiveRiskEngineConfig(
-        max_notional_per_order={
-            settings.account_currency: settings.risk_max_notional_per_order,
-        },
         max_order_submit_rate="10/00:00:01",
     )
 
     # --- Streaming persistence (all events to Parquet) ---
-    catalog_path = str(settings.catalog_dir / "live")
-    streaming_config = StreamingConfig(catalog_path=catalog_path)
+    effective_catalog = catalog_path or str(settings.catalog_dir / "live")
+    streaming_config = StreamingConfig(catalog_path=effective_catalog)
 
     # --- Logging ---
     log_dir = settings.get_log_dir()
+    effective_log_name = log_file_name or "paper_trading"
     logging_config = LoggingConfig(
         log_level="INFO",
         log_level_file="DEBUG",
         log_directory=str(log_dir),
-        log_file_name="paper_trading",
+        log_file_name=effective_log_name,
         log_colors=True,
     )
 
@@ -109,7 +120,7 @@ def build_trading_node_config(
         actors=actor_configs or [],
         save_state=True,
         load_state=True,
-        timeout_connection=60.0,
+        timeout_connection=120.0,
         timeout_reconciliation=30.0,
         timeout_portfolio=30.0,
         timeout_disconnection=10.0,

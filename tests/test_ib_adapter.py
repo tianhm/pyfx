@@ -121,17 +121,6 @@ class TestBuildTradingNodeConfig:
         assert result.logging.log_file_name == "paper_trading"
         assert result.logging.log_colors is True
 
-    def test_risk_engine_max_notional(self) -> None:
-        result = build_trading_node_config(
-            settings=_make_settings(
-                account_currency="EUR",
-                risk_max_notional_per_order=250_000,
-            ),
-            strategy_configs=[MagicMock()],
-        )
-        assert result.risk_engine is not None
-        assert result.risk_engine.max_notional_per_order == {"EUR": 250_000}
-
     def test_risk_engine_order_submit_rate(self) -> None:
         result = build_trading_node_config(
             settings=_make_settings(),
@@ -165,12 +154,13 @@ class TestBuildTradingNodeConfig:
         )
         data_config = result.data_clients["IB"]
         assert data_config.ibg_host == "10.0.0.1"
-        assert data_config.ibg_port == 7497
+        # Port is None when using DockerizedIBGatewayConfig
+        assert data_config.ibg_port is None
         assert data_config.ibg_client_id == 5
 
         exec_config = result.exec_clients["IB"]
         assert exec_config.ibg_host == "10.0.0.1"
-        assert exec_config.ibg_port == 7497
+        assert exec_config.ibg_port is None
         assert exec_config.ibg_client_id == 5
 
     def test_account_id_on_exec_client(self) -> None:
@@ -219,3 +209,40 @@ class TestBuildTradingNodeConfig:
         )
         assert result.exec_engine is not None
         assert result.exec_engine.debug is False
+
+    def test_custom_client_id(self) -> None:
+        result = build_trading_node_config(
+            settings=_make_settings(ib_client_id=1),
+            strategy_configs=[MagicMock()],
+            client_id=7,
+        )
+        data_config = result.data_clients["IB"]
+        assert data_config.ibg_client_id == 7
+        exec_config = result.exec_clients["IB"]
+        assert exec_config.ibg_client_id == 7
+
+    def test_custom_client_id_none_falls_back(self) -> None:
+        result = build_trading_node_config(
+            settings=_make_settings(ib_client_id=3),
+            strategy_configs=[MagicMock()],
+            client_id=None,
+        )
+        assert result.data_clients["IB"].ibg_client_id == 3
+
+    def test_custom_catalog_path(self) -> None:
+        result = build_trading_node_config(
+            settings=_make_settings(),
+            strategy_configs=[MagicMock()],
+            catalog_path="/custom/catalog/session_5",
+        )
+        assert result.streaming is not None
+        assert result.streaming.catalog_path == "/custom/catalog/session_5"
+
+    def test_custom_log_file_name(self) -> None:
+        result = build_trading_node_config(
+            settings=_make_settings(),
+            strategy_configs=[MagicMock()],
+            log_file_name="paper_trading_42",
+        )
+        assert result.logging is not None
+        assert result.logging.log_file_name == "paper_trading_42"

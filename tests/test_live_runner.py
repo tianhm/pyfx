@@ -69,6 +69,83 @@ def _create_event(
 
 
 # ---------------------------------------------------------------------------
+# Tests: allocate_client_id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@patch("pyfx.live.runner._setup_django")
+class TestAllocateClientId:
+    def test_returns_1_when_no_sessions(self, _mock: object) -> None:
+        from pyfx.live.runner import allocate_client_id
+
+        assert allocate_client_id() == 1
+
+    def test_returns_2_when_id_1_used(self, _mock: object) -> None:
+        from pyfx.live.runner import allocate_client_id
+
+        _create_session(client_id=1)
+        assert allocate_client_id() == 2
+
+    def test_fills_gap(self, _mock: object) -> None:
+        from pyfx.live.runner import allocate_client_id
+
+        _create_session(client_id=1)
+        _create_session(client_id=3)
+        assert allocate_client_id() == 2
+
+    def test_ignores_stopped_sessions(self, _mock: object) -> None:
+        from pyfx.live.runner import allocate_client_id
+
+        _create_session(client_id=1, status="stopped")
+        assert allocate_client_id() == 1
+
+    def test_ignores_null_client_id(self, _mock: object) -> None:
+        from pyfx.live.runner import allocate_client_id
+
+        _create_session(client_id=None)
+        assert allocate_client_id() == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: get_all_running_sessions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@patch("pyfx.live.runner._setup_django")
+class TestGetAllRunningSessions:
+    def test_empty_when_no_sessions(self, _mock: object) -> None:
+        from pyfx.live.runner import get_all_running_sessions
+
+        assert get_all_running_sessions() == []
+
+    def test_returns_running_sessions(self, _mock: object) -> None:
+        from pyfx.live.runner import get_all_running_sessions
+
+        _create_session(client_id=1, process_pid=100, num_trades=5, total_pnl=42.0)
+        _create_session(status="stopped")
+        result = get_all_running_sessions()
+        assert len(result) == 1
+        assert result[0]["client_id"] == 1
+        assert result[0]["process_pid"] == 100
+
+    def test_returns_multiple(self, _mock: object) -> None:
+        from pyfx.live.runner import get_all_running_sessions
+
+        _create_session(
+            instrument="XAU/USD",
+            started_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        _create_session(
+            instrument="EUR/USD",
+            started_at=datetime(2024, 6, 1, tzinfo=UTC),
+        )
+        result = get_all_running_sessions()
+        assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
 # Tests: get_session_status
 # ---------------------------------------------------------------------------
 

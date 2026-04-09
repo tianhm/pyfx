@@ -361,31 +361,77 @@ def live_start(
 
 
 @live.command("stop")
-def live_stop() -> None:
-    """Mark the most recent running session as stopped."""
+@click.option("--session-id", type=int, default=None, help="Stop a specific session ID")
+@click.option("--all", "stop_all", is_flag=True, default=False, help="Stop all running sessions")
+def live_stop(session_id: int | None, stop_all: bool) -> None:
+    """Stop running paper trading session(s)."""
     _setup_django()
     from pyfx.web.dashboard.models import PaperTradingSession
-
-    session = (
-        PaperTradingSession.objects
-        .filter(status=PaperTradingSession.STATUS_RUNNING)
-        .order_by("-started_at")
-        .first()
-    )
-    if session is None:
-        click.echo("No running paper trading sessions found.")
-        return
-
     from pyfx.web.dashboard.services import stop_paper_session
 
+    if stop_all:
+        sessions = PaperTradingSession.objects.filter(
+            status=PaperTradingSession.STATUS_RUNNING,
+        )
+        if not sessions.exists():
+            click.echo("No running paper trading sessions found.")
+            return
+        for s in sessions:
+            stop_paper_session(s.pk)
+            click.echo(f"Session #{s.pk} ({s.instrument}) stopped.")
+        return
+
+    if session_id is not None:
+        try:
+            session = PaperTradingSession.objects.get(pk=session_id)
+        except PaperTradingSession.DoesNotExist:
+            click.echo(f"Session #{session_id} not found.", err=True)
+            raise SystemExit(1) from None
+    else:
+        session_or_none = (
+            PaperTradingSession.objects
+            .filter(status=PaperTradingSession.STATUS_RUNNING)
+            .order_by("-started_at")
+            .first()
+        )
+        if session_or_none is None:
+            click.echo("No running paper trading sessions found.")
+            return
+        session = session_or_none
+
     stop_paper_session(session.pk)
-    click.echo(f"Session #{session.pk} marked as stopped.")
+    click.echo(f"Session #{session.pk} ({session.instrument}) stopped.")
 
 
 @live.command("status")
 @click.option("--session-id", type=int, default=None, help="Session ID (default: most recent)")
-def live_status(session_id: int | None) -> None:
+@click.option("--all", "show_all", is_flag=True, default=False, help="Show all running sessions")
+def live_status(session_id: int | None, show_all: bool) -> None:
     """Show current paper trading session status."""
+    if show_all:
+        from pyfx.live.runner import get_all_running_sessions
+
+        sessions = get_all_running_sessions()
+        if not sessions:
+            click.echo("No running paper trading sessions.")
+            return
+
+        click.echo(f"Running Sessions ({len(sessions)})")
+        click.echo("=" * 80)
+        click.echo(
+            f"{'ID':>5}  {'Strategy':<16} {'Instrument':<20} {'Client':>6} "
+            f"{'PID':>7} {'Trades':>6}  {'P&L':>12}",
+        )
+        click.echo("-" * 80)
+        for s in sessions:
+            pnl_str = f"${s['total_pnl']:+,.2f}" if s["total_pnl"] is not None else "n/a"
+            click.echo(
+                f"{s['session_id']:>5}  {s['strategy']:<16} {s['instrument']:<20} "
+                f"{s['client_id'] or '-':>6} {s['process_pid'] or '-':>7} "
+                f"{s['num_trades'] or 0:>6}  {pnl_str:>12}",
+            )
+        return
+
     from pyfx.live.runner import get_session_status
 
     status = get_session_status(session_id)
@@ -400,10 +446,10 @@ def live_status(session_id: int | None) -> None:
     if status["stopped_at"]:
         click.echo(f"  Stopped:     {status['stopped_at']}")
 
-    pnl = status.get("total_pnl")
+    pnl: float | None = status.get("total_pnl")
     if pnl is not None:
         click.echo(f"\n  Total P&L:   ${pnl:+,.2f}")
-    ret = status.get("total_return_pct")
+    ret: float | None = status.get("total_return_pct")
     if ret is not None:
         click.echo(f"  Return:      {ret:+.2f}%")
     click.echo(f"  Trades:      {status.get('num_trades', 0)}")

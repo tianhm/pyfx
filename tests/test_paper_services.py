@@ -109,6 +109,46 @@ class StopPaperSessionTests(TestCase):
         session.refresh_from_db()
         assert session.status == PaperTradingSession.STATUS_STOPPED
 
+    def test_stop_sends_sigterm(self) -> None:
+        from unittest.mock import patch
+
+        session = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            process_pid=99999,
+        )
+
+        with patch("os.kill") as mock_kill:
+            stop_paper_session(session.pk)
+            mock_kill.assert_called_once()
+
+        session.refresh_from_db()
+        assert session.process_pid is None
+
+    def test_stop_handles_missing_process(self) -> None:
+        from unittest.mock import patch
+
+        session = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            process_pid=99999,
+        )
+
+        with patch("os.kill", side_effect=ProcessLookupError):
+            stop_paper_session(session.pk)  # should not raise
+
+        session.refresh_from_db()
+        assert session.status == PaperTradingSession.STATUS_STOPPED
+
+    def test_stop_clears_pid(self) -> None:
+        session = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            process_pid=None,
+        )
+
+        stop_paper_session(session.pk)
+
+        session.refresh_from_db()
+        assert session.process_pid is None
+
 
 class SavePaperTradeTests(TestCase):
     def test_save_open_trade(self) -> None:

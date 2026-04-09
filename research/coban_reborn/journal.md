@@ -555,6 +555,50 @@ The spread fix had the biggest impact on EUR/USD (1.5 pip spread matters more on
 - [ ] Add mean-reversion entry mode for range-bound FX pairs (EUR/USD 2024 showed trend-follow doesn't work there)
 - [ ] Build live adapter for XAU/USD specifically (OANDA or Interactive Brokers)
 - [ ] Add state persistence for mid-trade recovery
-- [ ] Paper trade XAU/USD for 1-3 months before live
+- [x] Paper trade XAU/USD for 1-3 months before live — **started 2026-04-08** (see entry below)
 - [ ] Should we test 3m/10m or other timeframe combos?
 - [ ] Why did OIL/USD Fixed and Trailing produce identical results?
+
+---
+
+### 2026-04-08 — Paper Trading Launch
+
+**Context:** Starting paper trading for XAU/USD, GBP/USD, EUR/USD to validate live performance against backtests. Running both ATR and trailing exit modes for comparison.
+
+**Multi-session support added:** Before launch, implemented proper concurrent session support — auto-allocated IB client IDs, per-session catalog/log isolation, PID tracking, CLI `live stop --session-id/--all`, `live status --all`, and risk dashboard session selector.
+
+**4 Sessions planned:**
+
+| # | Instruments | Exit Mode | Trade Size | Notes |
+|---|------------|-----------|------------|-------|
+| 1 | EUR/USD, GBP/USD | ATR | 100,000 | Matches comprehensive sweep best config |
+| 2 | EUR/USD, GBP/USD | Trailing | 100,000 | For A/B comparison |
+| 3 | XAU/USD | ATR | 100 oz | Matches comprehensive sweep best config |
+| 4 | XAU/USD | Trailing | 100 oz | For A/B comparison |
+
+**Exact params (matching `comprehensive_2026-04-04_1330` sweep):**
+```
+entry_mode=trend_follow, exit_mode=atr (or trailing)
+sma_fast_period=3, sma_slow_period=7
+macd_fast_period=8, macd_slow_period=21, macd_signal_period=5
+atr_tp_multiplier=3.0, atr_sl_multiplier=2.0
+rsi_level_threshold=0.50
+session_start_hour=0, session_end_hour=24
+extra_bar_types: 5-MINUTE-LAST-EXTERNAL, 15-MINUTE-LAST-EXTERNAL
+```
+
+**Reference backtest results (comprehensive sweep, $5k/200x, Jan 2025 - Mar 2026):**
+
+| Instrument | P&L | Return | Trades | WR | MaxDD |
+|-----------|-----|--------|--------|-----|-------|
+| XAU/USD | $4,563,584,143 | 91,271,682% | 3,631 | 56.2% | -19.83% |
+| EUR/USD | $1,260,769 | 25,215% | 2,063 | 50.9% | -23.62% |
+| GBP/USD | $1,102,510 | 22,050% | 2,727 | 49.6% | -22.10% |
+
+**IB paper account differences:**
+- Balance: $1M virtual (IB default) vs $5k in backtests
+- Leverage: IB-determined per instrument vs 200x in backtests
+- Position sizing: 2% risk per trade via RiskMonitorActor
+- Comparison should normalize by return %, not absolute dollars
+
+**Follow-up:** Run comparison backtests around Apr 12-15 using `pyfx live compare`.

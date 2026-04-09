@@ -282,12 +282,9 @@ class TestLiveStopCommand:
     ) -> None:
         mock_session = MagicMock()
         mock_session.pk = 42
-        (
-            MockSession.objects
-            .filter.return_value
-            .order_by.return_value
-            .first.return_value
-        ) = mock_session
+        mock_session.instrument = "XAU/USD"
+        qs = MockSession.objects.filter.return_value
+        qs.order_by.return_value.first.return_value = mock_session
 
         runner = CliRunner()
         result = runner.invoke(main, ["live", "stop"])
@@ -302,15 +299,84 @@ class TestLiveStopCommand:
     def test_live_stop_no_sessions(
         self, _setup: MagicMock, MockSession: MagicMock,
     ) -> None:
-        (
-            MockSession.objects
-            .filter.return_value
-            .order_by.return_value
-            .first.return_value
-        ) = None
+        qs = MockSession.objects.filter.return_value
+        qs.order_by.return_value.first.return_value = None
+        qs.exists.return_value = False
 
         runner = CliRunner()
         result = runner.invoke(main, ["live", "stop"])
+
+        assert result.exit_code == 0
+        assert "No running" in result.output
+
+    @patch("pyfx.web.dashboard.services.stop_paper_session")
+    @patch("pyfx.web.dashboard.models.PaperTradingSession")
+    @patch("pyfx.cli._setup_django")
+    def test_live_stop_session_id(
+        self,
+        _setup: MagicMock,
+        MockSession: MagicMock,
+        mock_stop: MagicMock,
+    ) -> None:
+        mock_session = MagicMock()
+        mock_session.pk = 7
+        mock_session.instrument = "EUR/USD"
+        MockSession.objects.get.return_value = mock_session
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["live", "stop", "--session-id", "7"])
+
+        assert result.exit_code == 0
+        assert "7" in result.output
+        mock_stop.assert_called_once_with(7)
+
+    @patch("pyfx.web.dashboard.services.stop_paper_session")
+    @patch("pyfx.web.dashboard.models.PaperTradingSession")
+    @patch("pyfx.cli._setup_django")
+    def test_live_stop_all(
+        self,
+        _setup: MagicMock,
+        MockSession: MagicMock,
+        mock_stop: MagicMock,
+    ) -> None:
+        s1 = MagicMock(pk=1, instrument="XAU/USD")
+        s2 = MagicMock(pk=2, instrument="EUR/USD")
+        qs = MockSession.objects.filter.return_value
+        qs.exists.return_value = True
+        qs.__iter__ = MagicMock(return_value=iter([s1, s2]))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["live", "stop", "--all"])
+
+        assert result.exit_code == 0
+        assert mock_stop.call_count == 2
+        assert "XAU/USD" in result.output
+        assert "EUR/USD" in result.output
+
+    @patch("pyfx.web.dashboard.models.PaperTradingSession")
+    @patch("pyfx.cli._setup_django")
+    def test_live_stop_session_not_found(
+        self, _setup: MagicMock, MockSession: MagicMock,
+    ) -> None:
+        MockSession.objects.get.side_effect = MockSession.DoesNotExist
+        MockSession.DoesNotExist = type("DoesNotExist", (Exception,), {})
+        MockSession.objects.get.side_effect = MockSession.DoesNotExist()
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["live", "stop", "--session-id", "999"])
+
+        assert result.exit_code == 1
+
+    @patch("pyfx.web.dashboard.models.PaperTradingSession")
+    @patch("pyfx.cli._setup_django")
+    def test_live_stop_all_no_sessions(
+        self, _setup: MagicMock, MockSession: MagicMock,
+    ) -> None:
+        qs = MockSession.objects.filter.return_value
+        qs.exists.return_value = False
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["live", "stop", "--all"])
 
         assert result.exit_code == 0
         assert "No running" in result.output
@@ -424,6 +490,40 @@ class TestLiveStatusCommand:
         assert "2050.0" in result.output
         assert "Recent events" in result.output
         assert "Session started" in result.output
+
+    @patch("pyfx.live.runner.get_all_running_sessions")
+    def test_live_status_all(self, mock_all: MagicMock) -> None:
+        mock_all.return_value = [
+            {
+                "session_id": 1, "strategy": "coban_reborn",
+                "instrument": "XAU/USD", "started_at": "2024-01-01",
+                "client_id": 1, "process_pid": 12345,
+                "total_pnl": 500.0, "num_trades": 10,
+            },
+            {
+                "session_id": 2, "strategy": "coban_reborn",
+                "instrument": "EUR/USD,GBP/USD", "started_at": "2024-01-01",
+                "client_id": 2, "process_pid": 12346,
+                "total_pnl": None, "num_trades": 0,
+            },
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["live", "status", "--all"])
+
+        assert result.exit_code == 0
+        assert "Running Sessions (2)" in result.output
+        assert "XAU/USD" in result.output
+
+    @patch("pyfx.live.runner.get_all_running_sessions")
+    def test_live_status_all_empty(self, mock_all: MagicMock) -> None:
+        mock_all.return_value = []
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["live", "status", "--all"])
+
+        assert result.exit_code == 0
+        assert "No running" in result.output
 
 
 class TestLiveHistoryCommand:

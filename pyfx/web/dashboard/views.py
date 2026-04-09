@@ -1016,12 +1016,19 @@ def comparison_view(request: HttpRequest, paper_pk: int, backtest_pk: int) -> Ht
 
 def risk_dashboard(request: HttpRequest) -> HttpResponse:
     """Risk monitoring dashboard."""
-    session = (
-        PaperTradingSession.objects.filter(status=PaperTradingSession.STATUS_RUNNING)
-        .order_by("-started_at")
-        .first()
+    running_sessions = list(
+        PaperTradingSession.objects.filter(
+            status=PaperTradingSession.STATUS_RUNNING,
+        ).order_by("-started_at")
     )
-    if session is None:
+
+    # Allow selecting a specific session via ?session_id=N
+    session_id = request.GET.get("session_id")
+    if session_id:
+        session = PaperTradingSession.objects.filter(pk=int(session_id)).first()
+    elif running_sessions:
+        session = running_sessions[0]
+    else:
         session = PaperTradingSession.objects.order_by("-started_at").first()
 
     snapshots: list[object] = []
@@ -1045,6 +1052,7 @@ def risk_dashboard(request: HttpRequest) -> HttpResponse:
     return render(request, "dashboard/risk.html", {
         "active_nav": "risk",
         "session": session,
+        "running_sessions": running_sessions,
         "snapshots": snapshots,
         "risk_events": events,
         "open_trades": open_trades,

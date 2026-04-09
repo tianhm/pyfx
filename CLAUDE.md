@@ -85,8 +85,11 @@ uv run pyfx generate-sample-data                                                
 uv run pyfx ingest -i <csv> [-o <parquet>]                                          # Ingest Dukascopy CSV to Parquet
 uv run pyfx web                                                                     # Start Django dashboard
 uv run pyfx live start -s coban_reborn -i XAU/USD --extra-bar-type 5-MINUTE-LAST-EXTERNAL --extra-bar-type 15-MINUTE-LAST-EXTERNAL  # Start paper trading
-uv run pyfx live stop                                                                # Stop running session
+uv run pyfx live stop                                                                # Stop most recent session
+uv run pyfx live stop --session-id 3                                                 # Stop specific session
+uv run pyfx live stop --all                                                          # Stop all running sessions
 uv run pyfx live status                                                              # Current positions, P&L, risk
+uv run pyfx live status --all                                                        # List all running sessions
 uv run pyfx live history                                                             # Morning review (last 24h)
 uv run pyfx live compare --session 1 --backtest 2                                    # Compare paper vs backtest
 uv run pyfx live config                                                              # Show IB + risk configuration
@@ -205,6 +208,11 @@ All new code must include tests. No exceptions.
 - **IB paper accounts**: Account IDs start with "DU". Port 4002 = paper IBG, 4001 = live IBG. The `--confirm-live` flag is required for live mode.
 - **RiskMonitorActor**: Native NautilusTrader Actor plugged into the event bus. Has direct access to `self.portfolio` and `self.cache`. Do NOT use standalone risk classes — use the Actor pattern.
 - **TradingNode vs BacktestEngine**: Same `PyfxStrategy` class works unchanged in both. The runner module is the only difference: `backtest/runner.py` uses `BacktestEngine`, `live/runner.py` uses `TradingNode`.
+- **TradingNode lifecycle**: Must call `node.add_data_client_factory("IB", ...)` and `node.add_exec_client_factory("IB", ...)` then `node.build()` before `node.run()`. Factories are in `nautilus_trader.adapters.interactive_brokers.factories`.
+- **DockerizedIBGateway port**: When using `DockerizedIBGatewayConfig`, set `ibg_port=None` on data/exec client configs — the Docker container manages the port. Setting a port value causes a `TypeError`.
+- **Django async in NautilusTrader**: The TradingNode runs an async event loop (uvloop). Django ORM calls from actors/strategies fail with `SynchronousOnlyOperation`. Set `DJANGO_ALLOW_ASYNC_UNSAFE=true` in the runner before starting the node.
+- **Multi-session paper trading**: Each session auto-allocates a unique IB `client_id` (1, 2, 3...), writes to per-session catalog (`catalog/live/session_{id}/`) and log file (`paper_trading_{id}`). PID tracked in `PaperTradingSession.process_pid`.
+- **Docker socket (OrbStack)**: The `docker` Python package needs `DOCKER_HOST=unix:///Users/joseph/.docker/run/docker.sock` when using OrbStack. Default `/var/run/docker.sock` doesn't exist.
 - **NautilusTrader streaming**: `StreamingConfig` auto-persists all events/bars/fills to Parquet at `~/.pyfx/catalog/live/`. Combined with `save_state=True`, this enables crash recovery.
 - **Paper vs backtest comparison**: `pyfx/analysis/comparison.py` matches trades by time proximity (+/- 5 min) and side. Unmatched paper trades = false signals, unmatched backtest trades = missed signals.
 - **Sweep scripts**: `scripts/coban_sweep.py` runs 10 entry/exit variations on EUR/USD. `scripts/coban_multi_pair.py` runs top variations across 5 instruments. `scripts/param_sensitivity.py` perturbs 7 key parameters +/- 40%. `scripts/walk_forward.py` runs rolling 3-month window analysis. All import `run_backtest` directly — run with `uv run python scripts/<name>.py`.

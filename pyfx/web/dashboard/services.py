@@ -123,12 +123,27 @@ def create_paper_session(
 
 
 def stop_paper_session(session_id: int) -> None:
-    """Mark a PaperTradingSession as stopped."""
+    """Stop a running PaperTradingSession.
+
+    Sends SIGTERM to the process if its PID is recorded, then marks the
+    session as stopped in the database.
+    """
+    import os
+    import signal as signal_mod
+
     from pyfx.web.dashboard.models import PaperTradingSession
+
+    session = PaperTradingSession.objects.filter(pk=session_id).first()
+    if session is not None and session.process_pid:
+        try:
+            os.kill(session.process_pid, signal_mod.SIGTERM)
+        except ProcessLookupError:
+            pass
 
     PaperTradingSession.objects.filter(pk=session_id).update(
         status=PaperTradingSession.STATUS_STOPPED,
         stopped_at=datetime.now(UTC),
+        process_pid=None,
     )
 
 

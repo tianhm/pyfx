@@ -186,6 +186,10 @@ class PaperTradingSession(models.Model):
     account_id = models.CharField(max_length=50, blank=True, default="")
     config_json = models.JSONField(default=dict, blank=True)
 
+    # Multi-session support
+    client_id = models.IntegerField(null=True, blank=True)
+    process_pid = models.IntegerField(null=True, blank=True)
+
     # Aggregate metrics (updated as trades close)
     total_pnl = models.FloatField(null=True, blank=True)
     total_return_pct = models.FloatField(null=True, blank=True)

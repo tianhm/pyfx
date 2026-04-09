@@ -2309,6 +2309,39 @@ class RiskDashboardViewTests(TestCase):
         event_types = {e.event_type for e in events}
         assert "info" not in event_types
 
+    def test_risk_dashboard_session_id_param(self) -> None:
+        s1 = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            instrument="XAU/USD",
+            started_at=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        s2 = _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            instrument="EUR/USD",
+            started_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        # Without param, should show s1 (more recent)
+        resp = self.client.get("/risk/")
+        assert resp.context["session"] == s1
+
+        # With param, should show s2
+        resp = self.client.get(f"/risk/?session_id={s2.pk}")
+        assert resp.context["session"] == s2
+
+    def test_risk_dashboard_running_sessions_in_context(self) -> None:
+        _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            started_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+        _create_session(
+            status=PaperTradingSession.STATUS_RUNNING,
+            started_at=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        _create_session(status=PaperTradingSession.STATUS_STOPPED)
+
+        resp = self.client.get("/risk/")
+        assert len(resp.context["running_sessions"]) == 2
+
 
 # ---------------------------------------------------------------------------
 # Paper Trading API Tests

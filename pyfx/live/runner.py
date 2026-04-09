@@ -12,6 +12,50 @@ if TYPE_CHECKING:
     from pyfx.core.types import LiveTradingConfig
 
 
+def allocate_client_id() -> int:
+    """Return the lowest unused IB client ID (starting from 1).
+
+    Queries running ``PaperTradingSession`` rows for already-used IDs.
+    """
+    _setup_django()
+    from pyfx.web.dashboard.models import PaperTradingSession
+
+    used_ids = set(
+        PaperTradingSession.objects.filter(
+            status=PaperTradingSession.STATUS_RUNNING,
+            client_id__isnull=False,
+        ).values_list("client_id", flat=True)
+    )
+    client_id = 1
+    while client_id in used_ids:
+        client_id += 1
+    return client_id
+
+
+def get_all_running_sessions() -> list[dict[str, Any]]:
+    """Return a summary of every running paper-trading session."""
+    _setup_django()
+    from pyfx.web.dashboard.models import PaperTradingSession
+
+    sessions = PaperTradingSession.objects.filter(
+        status=PaperTradingSession.STATUS_RUNNING,
+    ).order_by("-started_at")
+
+    return [
+        {
+            "session_id": s.pk,
+            "strategy": s.strategy,
+            "instrument": s.instrument,
+            "started_at": str(s.started_at),
+            "client_id": s.client_id,
+            "process_pid": s.process_pid,
+            "total_pnl": s.total_pnl,
+            "num_trades": s.num_trades,
+        }
+        for s in sessions
+    ]
+
+
 def start_live_trading(  # pragma: no cover
     config: LiveTradingConfig,
     settings: PyfxSettings,
@@ -63,6 +107,12 @@ def start_live_trading(  # pragma: no cover
         )
     db_session_id: int = session.pk
 
+    # --- Allocate unique client ID and record PID ---
+    session_client_id = allocate_client_id()
+    session.client_id = session_client_id
+    session.process_pid = os.getpid()
+    session.save(update_fields=["client_id", "process_pid"])
+
     # --- Build strategy configs (one per instrument) ---
     strategy_configs = []
     for iid_str in instrument_id_strs:
@@ -102,16 +152,32 @@ def start_live_trading(  # pragma: no cover
         config=_msgspec_to_dict(risk_config),
     )
 
-    # --- Build TradingNodeConfig ---
+    # --- Build TradingNodeConfig (per-session isolation) ---
+    session_catalog = str(settings.catalog_dir / "live" / f"session_{db_session_id}")
+    session_log_name = f"paper_trading_{db_session_id}"
     node_config = build_trading_node_config(
         settings=settings,
         strategy_configs=strategy_configs,
         actor_configs=[actor_config],
         instrument_ids=instrument_id_strs,
+        client_id=session_client_id,
+        catalog_path=session_catalog,
+        log_file_name=session_log_name,
     )
 
+    # --- Allow synchronous Django ORM calls from NautilusTrader's async loop ---
+    os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+
     # --- Create and run node ---
+    from nautilus_trader.adapters.interactive_brokers.factories import (
+        InteractiveBrokersLiveDataClientFactory,
+        InteractiveBrokersLiveExecClientFactory,
+    )
+
     node = TradingNode(config=node_config)
+    node.add_data_client_factory("IB", InteractiveBrokersLiveDataClientFactory)
+    node.add_exec_client_factory("IB", InteractiveBrokersLiveExecClientFactory)
+    node.build()
 
     def _graceful_stop(signum: int, frame: object) -> None:
         node.stop()
@@ -134,6 +200,7 @@ def start_live_trading(  # pragma: no cover
         session.refresh_from_db()
         session.status = PaperTradingSession.STATUS_STOPPED
         session.stopped_at = datetime.now(UTC)
+        session.process_pid = None
         session.save()
 
         from pyfx.live.events import save_session_event
