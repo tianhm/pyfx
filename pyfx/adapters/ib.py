@@ -41,7 +41,6 @@ def build_trading_node_config(
     )
     from nautilus_trader.live.config import RoutingConfig
     from nautilus_trader.model.identifiers import InstrumentId
-    from nautilus_trader.persistence.config import StreamingConfig
 
     # --- Docker gateway (manages IB Gateway container lifecycle) ---
     gateway_config = DockerizedIBGatewayConfig(
@@ -52,12 +51,33 @@ def build_trading_node_config(
     )
 
     # --- Instrument provider ---
+    # Use load_contracts (IBContract objects) for reliable instrument
+    # resolution.  load_ids alone can fail because the instrument isn't
+    # resolved in time before strategies subscribe to bars.
+    from nautilus_trader.adapters.interactive_brokers.common import IBContract as _IBContract
+
+    from pyfx.adapters.instruments import get_ib_contract
+
+    load_contracts: frozenset[_IBContract] = frozenset()
     load_ids: frozenset[InstrumentId] = frozenset()
     if instrument_ids:
         load_ids = frozenset(InstrumentId.from_str(iid) for iid in instrument_ids)
+        # Also resolve IBContract objects from pyfx instrument mapping
+        from pyfx.adapters.instruments import IB_INSTRUMENT_IDS
+
+        # Reverse-map: IB id string -> pyfx name
+        reverse_map = {v: k for k, v in IB_INSTRUMENT_IDS.items()}
+        contracts = []
+        for iid_str in instrument_ids:
+            pyfx_name = reverse_map.get(iid_str)
+            if pyfx_name:
+                contracts.append(get_ib_contract(pyfx_name))
+        if contracts:
+            load_contracts = frozenset(contracts)
 
     instrument_provider_config = InteractiveBrokersInstrumentProviderConfig(
         load_ids=load_ids,
+        load_contracts=load_contracts if load_contracts else None,
     )
 
     # --- Data client (default=True routes all venues through IB) ---
@@ -92,9 +112,12 @@ def build_trading_node_config(
         max_order_submit_rate="10/00:00:01",
     )
 
-    # --- Streaming persistence (all events to Parquet) ---
-    effective_catalog = catalog_path or str(settings.catalog_dir / "live")
-    streaming_config = StreamingConfig(catalog_path=effective_catalog)
+    # --- Streaming persistence ---
+    # Disabled: NautilusTrader 1.224.0 StreamingWriter crashes on
+    # ExecutionMassStatus events during reconciliation (KeyError on schema).
+    # Our Django DB persistence (RiskMonitorActor + events.py) handles all
+    # trade/event storage, so Parquet streaming is not needed.
+    streaming_config = None
 
     # --- Logging ---
     log_dir = settings.get_log_dir()

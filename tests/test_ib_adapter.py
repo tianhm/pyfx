@@ -85,7 +85,7 @@ class TestBuildTradingNodeConfig:
             settings=_make_settings(),
             strategy_configs=[MagicMock()],
         )
-        assert result.timeout_connection == 60.0
+        assert result.timeout_connection == 120.0
         assert result.timeout_reconciliation == 30.0
         assert result.timeout_portfolio == 30.0
         assert result.timeout_disconnection == 10.0
@@ -99,13 +99,12 @@ class TestBuildTradingNodeConfig:
         assert result.save_state is True
         assert result.load_state is True
 
-    def test_streaming_catalog_path(self) -> None:
+    def test_streaming_disabled(self) -> None:
         result = build_trading_node_config(
             settings=_make_settings(catalog_dir=Path("/data/catalog")),
             strategy_configs=[MagicMock()],
         )
-        assert result.streaming is not None
-        assert result.streaming.catalog_path == "/data/catalog/live"
+        assert result.streaming is None
 
     def test_logging_config(self) -> None:
         settings = _make_settings()
@@ -229,14 +228,14 @@ class TestBuildTradingNodeConfig:
         )
         assert result.data_clients["IB"].ibg_client_id == 3
 
-    def test_custom_catalog_path(self) -> None:
+    def test_custom_catalog_path_ignored_when_streaming_disabled(self) -> None:
         result = build_trading_node_config(
             settings=_make_settings(),
             strategy_configs=[MagicMock()],
             catalog_path="/custom/catalog/session_5",
         )
-        assert result.streaming is not None
-        assert result.streaming.catalog_path == "/custom/catalog/session_5"
+        # Streaming disabled due to NT 1.224.0 bug; catalog_path is unused
+        assert result.streaming is None
 
     def test_custom_log_file_name(self) -> None:
         result = build_trading_node_config(

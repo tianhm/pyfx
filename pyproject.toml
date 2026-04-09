@@ -70,6 +70,10 @@ module = "nautilus_trader.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "ibapi.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "pyfx.web.dashboard.migrations.*"
 ignore_errors = true
 
